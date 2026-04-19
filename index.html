@@ -297,16 +297,21 @@ body.view-mode .cdel{display:none}
       return;
     }
 
+    // Never apply remote data while user is dragging — would snap node back
+    if (window._dragging) {
+      console.log('[Firebase] Skipping update — user is dragging');
+      _firstLoad = false;
+      return;
+    }
+
     // On first load always apply (loads saved state on page open)
     // On subsequent fires only apply if savedAt is newer than our last save
     const isNewer = !_lastSaveTime || (data.savedAt && data.savedAt > _lastSaveTime);
     if (_firstLoad || isNewer) {
       console.log('[Firebase] Applying remote data');
-      // Push into global vars that render() reads
       window._nodes = data.nodes || [];
       window._conns = data.conns || [];
       window._nid   = data.nid   || 0;
-      // Apply to local JS variables via callback
       if (typeof window.applyFirebaseData === 'function') {
         window.applyFirebaseData(data.nodes || [], data.conns || [], data.nid || 0);
       }
@@ -805,23 +810,36 @@ function makeDrag(el,n){
   let ox,oy,sx,sy,mv=false;
   el.addEventListener('mousedown',e=>{
     if(!editMode||e.target.classList.contains('node-del'))return;
-    // Record start position in node-data coords (already correct)
-    ox=n.x;oy=n.y;sx=e.clientX;sy=e.clientY;mv=false;
+    ox=n.x;oy=n.y;
+    // Use canvas-relative position to avoid scroll offset issues
+    const canvasRect=canvas.getBoundingClientRect();
+    sx=e.clientX-canvasRect.left;
+    sy=e.clientY-canvasRect.top;
+    mv=false;
+    // Pause Firebase listener while dragging so it can't snap nodes back
+    window._dragging=true;
     const mm=ev=>{
-      const dx=ev.clientX-sx;
-      const dy=ev.clientY-sy;
+      const cr=canvas.getBoundingClientRect();
+      const cx=ev.clientX-cr.left;
+      const cy2=ev.clientY-cr.top;
+      const dx=cx-sx;
+      const dy=cy2-sy;
       if(Math.abs(dx)+Math.abs(dy)>3)mv=true;
       n.x=Math.max(0,ox+dx);
       n.y=Math.max(0,oy+dy);
       el.style.left=n.x+'px';
       el.style.top=n.y+'px';
-      _draggedNodes.add(n.id); // mark as manually positioned → use bezier
       renderSVG();
     };
     const mu=()=>{
       window.removeEventListener('mousemove',mm);
       window.removeEventListener('mouseup',mu);
-      if(mv){snapshot();render();}
+      window._dragging=false;
+      if(mv){
+        syncGlobals();
+        snapshot();
+        render();
+      }
     };
     window.addEventListener('mousemove',mm);
     window.addEventListener('mouseup',mu);
