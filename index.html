@@ -250,100 +250,76 @@ body.view-mode #panel{display:none}
   const db  = getDatabase(app);
   const chartRef = ref(db, 'mdu_pmo_chart');
 
-  let _isSaving = false;
+  // Unique ID for this browser tab — we only apply data saved by OTHER tabs
+  const MY_TAB = 'tab_' + Math.random().toString(36).slice(2);
   let _saveTimer = null;
-  let _lastSaveTime = 0;
+  let _firstLoad = true;
 
   // ── SAVE ──
   window.firebaseSave = function() {
     clearTimeout(_saveTimer);
     _saveTimer = setTimeout(async () => {
-      _isSaving = true;
-      _lastSaveTime = Date.now();
       try {
         await set(chartRef, {
-          nodes: JSON.parse(JSON.stringify(window._nodes || [])),
-          conns: JSON.parse(JSON.stringify(window._conns || [])),
-          nid:   window._nid || 0,
-          savedAt: _lastSaveTime
+          nodes:  JSON.parse(JSON.stringify(window._nodes || [])),
+          conns:  JSON.parse(JSON.stringify(window._conns || [])),
+          nid:    window._nid || 0,
+          savedBy: MY_TAB,
+          savedAt: Date.now()
         });
         showSyncStatus('saved');
-        console.log('[Firebase] Saved OK');
       } catch(e) {
-        console.error('[Firebase] Save failed:', e);
         showSyncStatus('error');
+        console.error('[Firebase] Save error:', e);
       }
-      setTimeout(() => { _isSaving = false; }, 2000);
-    }, 1000);
+    }, 800);
   };
 
   // ── LISTEN ──
-  // onValue fires immediately with current data AND on every future change
-  let _firstLoad = true;
   onValue(chartRef, (snap) => {
     const data = snap.val();
-    console.log('[Firebase] onValue fired, isSaving:', _isSaving, 'data:', !!data);
+    if (!data) { _firstLoad = false; return; }
 
-    if (!data) {
-      console.log('[Firebase] No data yet in database');
+    if (_firstLoad) {
+      // Always load on first open
       _firstLoad = false;
+      applyData(data);
       return;
     }
 
-    // Skip if this is our own save echoing back (within 2s)
-    if (_isSaving) {
-      console.log('[Firebase] Skipping echo from our own save');
-      _firstLoad = false;
+    // After first load: only apply if saved by a DIFFERENT tab
+    if (data.savedBy === MY_TAB) {
+      console.log('[Firebase] Ignoring own save');
       return;
     }
 
-    // Never apply remote data while user is dragging — would snap node back
+    // Also skip if user is currently dragging
     if (window._dragging) {
-      console.log('[Firebase] Skipping update — user is dragging');
-      _firstLoad = false;
-      return;
-    }
-    // Also skip if we just saved (within 3 seconds) to avoid echo
-    if (!_firstLoad && _lastSaveTime && (Date.now() - _lastSaveTime) < 3000) {
-      console.log('[Firebase] Skipping — too soon after our own save');
+      console.log('[Firebase] Ignoring — dragging');
       return;
     }
 
-    // On first load always apply (loads saved state on page open)
-    // On subsequent fires only apply if savedAt is newer than our last save
-    const isNewer = !_lastSaveTime || (data.savedAt && data.savedAt > _lastSaveTime);
-    if (_firstLoad || isNewer) {
-      console.log('[Firebase] Applying remote data');
-      window._nodes = data.nodes || [];
-      window._conns = data.conns || [];
-      window._nid   = data.nid   || 0;
-      if (typeof window.applyFirebaseData === 'function') {
-        window.applyFirebaseData(data.nodes || [], data.conns || [], data.nid || 0);
-      }
-      if (!_firstLoad) showSyncStatus('received');
-    }
-    _firstLoad = false;
-  }, (error) => {
-    console.error('[Firebase] Listen error:', error);
-    showSyncStatus('error');
+    applyData(data);
+    showSyncStatus('received');
   });
+
+  function applyData(data) {
+    window._nodes = data.nodes || [];
+    window._conns = data.conns || [];
+    window._nid   = data.nid   || 0;
+    if (typeof window.applyFirebaseData === 'function') {
+      window.applyFirebaseData(data.nodes || [], data.conns || [], data.nid || 0);
+    }
+  }
 
   function showSyncStatus(type) {
     const el = document.getElementById('sync-status');
     if (!el) return;
-    if (type === 'saved') {
-      el.textContent = '✓ Saved to cloud';
-      el.style.color = '#0A6648';
-    } else if (type === 'received') {
-      el.textContent = '↓ Updated by another user';
-      el.style.color = '#534AB7';
-    } else {
-      el.textContent = '⚠ Sync error — check console';
-      el.style.color = '#A32D2D';
-    }
+    el.textContent = type === 'saved' ? '✓ Saved' : type === 'received' ? '↓ Updated by another user' : '⚠ Sync error';
+    el.style.color  = type === 'saved' ? '#0A6648' : type === 'received' ? '#534AB7' : '#A32D2D';
     el.style.opacity = '1';
     clearTimeout(el._t);
-    el._t = setTimeout(() => { el.style.opacity = '0'; }, 4000);
+    el._t = setTimeout(() => { el.style.opacity = '0'; }, 3000);
   }
 </script>
 </head>
