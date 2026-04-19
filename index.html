@@ -234,6 +234,7 @@ body.view-mode .cdel{display:none}
 <script type="module">
 import{initializeApp}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import{getDatabase,ref,set,onValue}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
+
 const cfg={
   apiKey:"AIzaSyBaKXVl3yK3sdhC1roiwTQJSTgjLnrLVDE",
   authDomain:"mdu-pmo.firebaseapp.com",
@@ -243,61 +244,78 @@ const cfg={
   messagingSenderId:"648846201230",
   appId:"1:648846201230:web:baf5309d663df03c8c94df"
 };
-const app=initializeApp(cfg);
-const db=getDatabase(app);
-const KEY='mdu_chart_fresh_001'; // unique key — change this to reset database
-const r=ref(db,KEY);
+
+const db=getDatabase(initializeApp(cfg));
+const dbRef=ref(db,'mdu_chart_v3');
 const ME='tab_'+Math.random().toString(36).slice(2,9);
-let timer=null;
+let saveTimer=null;
 let firstLoad=true;
 
-// expose save function to main script
+// ── SAVE: called by snapshot() ──
 window.firebaseSave=function(){
-  clearTimeout(timer);
-  timer=setTimeout(async()=>{
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(async()=>{
     try{
-      await set(r,{
-        nodes:JSON.parse(JSON.stringify(window._fbNodes||[])),
-        conns:JSON.parse(JSON.stringify(window._fbConns||[])),
-        nid:window._fbNid||0,
-        by:ME,at:Date.now()
-      });
-      badge('✓ Saved','#0A6648');
-    }catch(e){badge('⚠ Save error','#A32D2D');}
+      const data={
+        nodes:JSON.parse(JSON.stringify(window._nodes||[])),
+        conns:JSON.parse(JSON.stringify(window._conns||[])),
+        nid:window._nid||0,
+        savedBy:ME,
+        savedAt:Date.now()
+      };
+      await set(dbRef,data);
+      showBadge('✓ Saved','#0A6648');
+    }catch(e){
+      showBadge('⚠ Save failed','#A32D2D');
+      console.error('[FB]',e);
+    }
   },800);
 };
 
-// expose sync function so main script can push current state
-window._syncGlobals=function(){
-  window._fbNodes=window._appNodes?window._appNodes():[];
-  window._fbConns=window._appConns?window._appConns():[];
-  window._fbNid=window._appNid?window._appNid():0;
-};
-
-// listen for changes
-onValue(r,snap=>{
+// ── LISTEN: apply changes from OTHER tabs only ──
+onValue(dbRef,snap=>{
   const d=snap.val();
   if(!d){firstLoad=false;return;}
+
   if(firstLoad){
+    // Always apply on first page load
     firstLoad=false;
-    if(typeof window.applyFirebaseData==='function'){
-      window.applyFirebaseData(d.nodes||[],d.conns||[],d.nid||0);
-    }
+    apply(d);
     return;
   }
-  if(d.by===ME)return; // ignore own saves
-  if(window._dragging)return; // ignore while dragging
-  if(typeof window.applyFirebaseData==='function'){
-    window.applyFirebaseData(d.nodes||[],d.conns||[],d.nid||0);
-    badge('↓ Updated','#534AB7');
+
+  // Skip if WE saved this (tab ID matches)
+  if(d.savedBy===ME){
+    console.log('[FB] Skipping own save');
+    return;
   }
+
+  // Skip while user is dragging
+  if(window._dragging){
+    console.log('[FB] Skipping — dragging');
+    return;
+  }
+
+  // Apply changes from another tab
+  apply(d);
+  showBadge('↓ Updated by another user','#534AB7');
 });
 
-function badge(msg,color){
-  const el=document.getElementById('fb-sync');
+function apply(d){
+  window._nodes=d.nodes||[];
+  window._conns=d.conns||[];
+  window._nid=d.nid||0;
+  if(typeof window.applyFirebaseData==='function'){
+    window.applyFirebaseData(d.nodes||[],d.conns||[],d.nid||0);
+  }
+}
+
+function showBadge(msg,color){
+  const el=document.getElementById('sync-badge');
   if(!el)return;
   el.textContent=msg;el.style.color=color;el.style.opacity='1';
-  clearTimeout(el._t);el._t=setTimeout(()=>el.style.opacity='0',3000);
+  clearTimeout(el._t);
+  el._t=setTimeout(()=>el.style.opacity='0',3000);
 }
 </script>
 </head>
@@ -308,9 +326,21 @@ function badge(msg,color){
     <div id="pw-lock">&#128274;</div>
     <h2>MDU PMO Team</h2>
     <p>This chart is password protected.<br>Enter the password to continue.</p>
-    <input type="password" id="pw-input" placeholder="Enter password" 
-      onkeydown="if(event.key==='Enter')checkPW()" autocomplete="off"/>
-    <button id="pw-btn" onclick="checkPW()">Unlock</button>
+    <div style="position:relative;margin-bottom:0">
+      <input type="password" id="pw-input" placeholder="Enter password"
+        onkeydown="if(event.key==='Enter')checkPW(); checkCaps(event);"
+        onkeyup="checkCaps(event)"
+        onfocus="checkCaps(event)"
+        autocomplete="off"
+        style="padding-right:40px"/>
+      <span id="pw-eye" onclick="togglePWVisible()"
+        style="position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:16px;color:#A8A59E;user-select:none"
+        title="Show/hide password">&#128065;</span>
+    </div>
+    <div id="pw-caps" style="display:none;font-size:12px;font-weight:500;color:#854F0B;background:#FAEEDA;border:1px solid #EF9F27;border-radius:6px;padding:7px 12px;margin-top:8px;text-align:center">
+      &#9650; Caps Lock is ON — this may affect your password
+    </div>
+    <button id="pw-btn" onclick="checkPW()" style="margin-top:12px">Unlock</button>
     <div id="pw-error"></div>
   </div>
 </div>
@@ -322,6 +352,8 @@ function badge(msg,color){
   <span class="mode-dot"></span>
   <span id="mlabel">View mode — chart is locked</span>
   <button id="mode-toggle" onclick="toggleMode()">Switch to Edit</button>
+</div>
+
 </div>
 
 <!-- TOOLBAR -->
@@ -396,7 +428,8 @@ function badge(msg,color){
   <span class="sp"><span class="sd" style="background:#2EAE82"></span><span id="sn">0 nodes</span></span>
   <span class="sp"><span class="sd" style="background:#7B72D9"></span><span id="sc">0 conns</span></span>
   <span class="sp" style="margin-left:auto;font-weight:500;color:var(--muted)" id="smode">View mode</span>
-  <span id="fb-sync" style="font-size:11px;font-weight:500;opacity:0;transition:opacity .4s;margin-right:8px;color:#0A6648"></span><span class="sp" style="font-size:10px;color:var(--hint)">Scroll left/right to pan &nbsp;·&nbsp; Shift+scroll = horizontal</span>
+  <span class="sp" style="font-size:10px;color:var(--hint)"><span id="sync-badge" style="font-size:11px;font-weight:500;opacity:0;transition:opacity .4s;margin-right:12px"></span>Scroll left/right to pan &nbsp;·&nbsp; Shift+scroll = horizontal</span>
+  <span id="sync-status" style="margin-left:auto;font-size:11px;font-weight:500;opacity:0;transition:opacity .4s"></span>
 </div>
 
 <!-- MODAL -->
@@ -416,13 +449,11 @@ function badge(msg,color){
 
 <script>
 /* ══ STATE ══ */
+// Core data — also exposed as window globals so Firebase module can access them
 let nodes=[],conns=[],selId=null,connMode=false,connFrom=null,modalId=null,editMode=false;
-let _firebaseLoaded=false;
+// Keep window globals in sync
+function syncGlobals(){ window._nodes=nodes; window._conns=conns; window._nid=nid; }
 let activeSw=document.querySelector('.swatch.active'),activeTheme='t-purple',nid=0;
-// Expose data to Firebase module
-window._appNodes=()=>nodes;
-window._appConns=()=>conns;
-window._appNid=()=>nid;
 let history=[],histIdx=-1,_pauseHistory=false;
 
 function snapshot(){
@@ -433,8 +464,9 @@ function snapshot(){
   if(history.length>60)history.shift();
   histIdx=history.length-1;
   updateUndoUI();
-  window._syncGlobals&&window._syncGlobals();
-  typeof window.firebaseSave==='function'&&window.firebaseSave();
+  // Sync to Firebase
+  syncGlobals();
+  if(typeof window.firebaseSave==='function') window.firebaseSave();
 }
 
 function undo(){
@@ -458,6 +490,9 @@ function restoreSnap(s){
   selId=null;showPanel(null);
   _pauseHistory=false;
   render();
+  // Push undo/redo state to Firebase too
+  syncGlobals();
+  if(typeof window.firebaseSave==='function') window.firebaseSave();
 }
 
 function updateUndoUI(){
@@ -579,10 +614,18 @@ function autoAlign(){
 
 /* ══ RENDER ══ */
 function render(){renderNodes();renderSVG();updateSt();}
-function applyFirebaseData(ns,cs,ni){
-  nodes=ns.map(n=>({...n}));conns=cs.map(c=>({...c}));
-  nid=Math.max(nid,ni);_firebaseLoaded=true;selId=null;render();
-}
+
+// Called by Firebase when another tab saves changes
+window.applyFirebaseData=function(ns,cs,ni){
+  nodes=ns.map(n=>({...n}));
+  conns=cs.map(c=>({...c}));
+  nid=Math.max(nid||0,ni||0);
+  window._firebaseLoaded=true;
+  selId=null;
+  render();
+};
+
+
 
 function renderNodes(){
   const ex={};
@@ -664,7 +707,7 @@ function renderSVG(){
     svgl.appendChild(path);
 
     if(editMode){
-      const mx=(x1+x2)/2, my=(y1+y2)/2;
+      const mx=(x1+x2)/2, my=mid;
       const fo=document.createElementNS('http://www.w3.org/2000/svg','foreignObject');
       fo.setAttribute('x',mx-7);fo.setAttribute('y',my-7);
       fo.setAttribute('width','14');fo.setAttribute('height','14');
@@ -690,20 +733,17 @@ function makeDrag(el,n){
     ox=n.x;oy=n.y;sx=e.clientX;sy=e.clientY;mv=false;
     window._dragging=true;
     const mm=ev=>{
-      const dx=ev.clientX-sx;
-      const dy=ev.clientY-sy;
+      const dx=ev.clientX-sx,dy=ev.clientY-sy;
       if(Math.abs(dx)+Math.abs(dy)>3)mv=true;
-      n.x=Math.max(0,ox+dx);
-      n.y=Math.max(0,oy+dy);
-      el.style.left=n.x+'px';
-      el.style.top=n.y+'px';
+      n.x=Math.max(0,ox+dx);n.y=Math.max(0,oy+dy);
+      el.style.left=n.x+'px';el.style.top=n.y+'px';
       renderSVG();
     };
     const mu=()=>{
       window.removeEventListener('mousemove',mm);
       window.removeEventListener('mouseup',mu);
       window._dragging=false;
-      if(mv){window._syncGlobals&&window._syncGlobals();snapshot();render();}
+      if(mv){syncGlobals();snapshot();render();}
     };
     window.addEventListener('mousemove',mm);
     window.addEventListener('mouseup',mu);
@@ -760,7 +800,6 @@ function renderSVG(){
 
     const cy=gap*0.5;
     const d=`M${x1},${y1} C${x1},${y1+cy} ${x2},${y2-cy} ${x2},${y2}`;
-
     const path=se('path');
     path.setAttribute('d',d);
     path.setAttribute('fill','none');
@@ -1048,6 +1087,34 @@ async function hashStr(str){
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 
+function checkCaps(e){
+  if(!e || !e.getModifierState) return;
+  const caps = e.getModifierState('CapsLock');
+  const el = document.getElementById('pw-caps');
+  el.style.display = caps ? 'block' : 'none';
+}
+
+
+
+function checkCapsOnFocus(){
+  /* Cannot read CapsLock without a KeyboardEvent — hide the warning on focus */
+  document.getElementById('pw-caps').style.display='none';
+}
+
+function togglePWVisible(){
+  const inp = document.getElementById('pw-input');
+  const eye = document.getElementById('pw-eye');
+  if(inp.type === 'password'){
+    inp.type = 'text';
+    eye.innerHTML = '&#128064;';
+    eye.title = 'Hide password';
+  } else {
+    inp.type = 'password';
+    eye.innerHTML = '&#128065;';
+    eye.title = 'Show password';
+  }
+}
+
 async function checkPW(){
   const val=document.getElementById('pw-input').value;
   const hash=await hashStr(val);
@@ -1070,24 +1137,40 @@ async function initAuth(){
   if(stored===PW_HASH){
     document.getElementById('pw-screen').style.display='none';
   } else {
-    // Keep screen visible, focus input
     setTimeout(()=>document.getElementById('pw-input').focus(),100);
   }
 }
 initAuth();
 
+// Show Firebase notice if config not filled in
+window.addEventListener('load',function(){
+  setTimeout(function(){
+    const scripts=document.querySelectorAll('script[type="module"]');
+    const src=Array.from(scripts).map(s=>s.textContent).join('');
+    if(src.includes('PASTE_API_KEY')){
+      const n=document.getElementById('fb-notice');
+      if(n) n.style.display='block';
+    }
+  },500);
+});
+
 /* ══ BOOT ══ */
 render();
+syncGlobals(); // expose to Firebase module on first load
 setTimeout(function(){
-  if(!_firebaseLoaded){autoAlign();}
-  snapshot();
+  if(!window._firebaseLoaded){autoAlign();}
+  syncGlobals();
+  syncGlobals();
+  snapshot(); // initial state
   const sa=document.getElementById('scroll-area');
   setTimeout(function(){
+    // Scroll so chart is centered in viewport
     const page=document.getElementById('page');
-    sa.scrollLeft=Math.max(0,(page.offsetWidth-sa.offsetWidth)/2);
+    const centerX=(page.offsetWidth - sa.offsetWidth)/2;
+    sa.scrollLeft=Math.max(0,centerX);
     updateUndoUI();
   },80);
-},2000);
+},100);
 </script>
 </body>
 </html>
