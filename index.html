@@ -171,11 +171,11 @@ body.view-mode #panel{display:none}
 .cdel{
   position:absolute;background:#fff;border:1px solid var(--danger-bd);
   color:var(--danger-tx);border-radius:50%;width:15px;height:15px;
-  font-size:9px;cursor:pointer;display:none;align-items:center;justify-content:center;
+  font-size:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;
   font-weight:700;transform:translate(-50%,-50%);
 }
 .cdel:hover{background:var(--danger-bg)}
-.cdel.visible{display:flex}
+body.view-mode .cdel{display:none}
 
 /* ── MODAL ── */
 #mw{display:none;position:fixed;inset:0;background:rgba(0,0,0,.2);z-index:300;align-items:center;justify-content:center}
@@ -250,7 +250,7 @@ body.view-mode #panel{display:none}
   const db  = getDatabase(app);
   const chartRef = ref(db, 'mdu_pmo_chart');
 
-  // Unique ID for this browser tab — we only apply data saved by OTHER tabs
+  // Unique ID for this tab — we only apply data saved by OTHER tabs
   const MY_TAB = 'tab_' + Math.random().toString(36).slice(2);
   let _saveTimer = null;
   let _firstLoad = true;
@@ -261,16 +261,15 @@ body.view-mode #panel{display:none}
     _saveTimer = setTimeout(async () => {
       try {
         await set(chartRef, {
-          nodes:  JSON.parse(JSON.stringify(window._nodes || [])),
-          conns:  JSON.parse(JSON.stringify(window._conns || [])),
-          nid:    window._nid || 0,
+          nodes:   JSON.parse(JSON.stringify(window._nodes || [])),
+          conns:   JSON.parse(JSON.stringify(window._conns || [])),
+          nid:     window._nid || 0,
           savedBy: MY_TAB,
           savedAt: Date.now()
         });
-        showSyncStatus('saved');
+        showSync('saved');
       } catch(e) {
-        showSyncStatus('error');
-        console.error('[Firebase] Save error:', e);
+        showSync('error');
       }
     }, 800);
   };
@@ -281,26 +280,19 @@ body.view-mode #panel{display:none}
     if (!data) { _firstLoad = false; return; }
 
     if (_firstLoad) {
-      // Always load on first open
       _firstLoad = false;
       applyData(data);
       return;
     }
 
-    // After first load: only apply if saved by a DIFFERENT tab
-    if (data.savedBy === MY_TAB) {
-      console.log('[Firebase] Ignoring own save');
-      return;
-    }
+    // Skip our own saves — only apply changes from other tabs
+    if (data.savedBy === MY_TAB) return;
 
-    // Also skip if user is currently dragging
-    if (window._dragging) {
-      console.log('[Firebase] Ignoring — dragging');
-      return;
-    }
+    // Skip while dragging
+    if (window._dragging) return;
 
     applyData(data);
-    showSyncStatus('received');
+    showSync('received');
   });
 
   function applyData(data) {
@@ -312,14 +304,14 @@ body.view-mode #panel{display:none}
     }
   }
 
-  function showSyncStatus(type) {
+  function showSync(type) {
     const el = document.getElementById('sync-status');
     if (!el) return;
-    el.textContent = type === 'saved' ? '✓ Saved' : type === 'received' ? '↓ Updated by another user' : '⚠ Sync error';
-    el.style.color  = type === 'saved' ? '#0A6648' : type === 'received' ? '#534AB7' : '#A32D2D';
+    el.textContent = type==='saved' ? '✓ Saved' : type==='received' ? '↓ Updated by another user' : '⚠ Sync error';
+    el.style.color  = type==='saved' ? '#0A6648' : type==='received' ? '#534AB7' : '#A32D2D';
     el.style.opacity = '1';
     clearTimeout(el._t);
-    el._t = setTimeout(() => { el.style.opacity = '0'; }, 3000);
+    el._t = setTimeout(() => { el.style.opacity='0'; }, 3000);
   }
 </script>
 </head>
@@ -330,21 +322,9 @@ body.view-mode #panel{display:none}
     <div id="pw-lock">&#128274;</div>
     <h2>MDU PMO Team</h2>
     <p>This chart is password protected.<br>Enter the password to continue.</p>
-    <div style="position:relative;margin-bottom:0">
-      <input type="password" id="pw-input" placeholder="Enter password"
-        onkeydown="if(event.key==='Enter')checkPW(); checkCaps(event);"
-        onkeyup="checkCaps(event)"
-        onfocus="checkCaps(event)"
-        autocomplete="off"
-        style="padding-right:40px"/>
-      <span id="pw-eye" onclick="togglePWVisible()"
-        style="position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:16px;color:#A8A59E;user-select:none"
-        title="Show/hide password">&#128065;</span>
-    </div>
-    <div id="pw-caps" style="display:none;font-size:12px;font-weight:500;color:#854F0B;background:#FAEEDA;border:1px solid #EF9F27;border-radius:6px;padding:7px 12px;margin-top:8px;text-align:center">
-      &#9650; Caps Lock is ON — this may affect your password
-    </div>
-    <button id="pw-btn" onclick="checkPW()" style="margin-top:12px">Unlock</button>
+    <input type="password" id="pw-input" placeholder="Enter password" 
+      onkeydown="if(event.key==='Enter')checkPW()" autocomplete="off"/>
+    <button id="pw-btn" onclick="checkPW()">Unlock</button>
     <div id="pw-error"></div>
   </div>
 </div>
@@ -356,29 +336,6 @@ body.view-mode #panel{display:none}
   <span class="mode-dot"></span>
   <span id="mlabel">View mode — chart is locked</span>
   <button id="mode-toggle" onclick="toggleMode()">Switch to Edit</button>
-</div>
-
-<!-- FIREBASE CONFIG NOTICE (only shown if not configured) -->
-<div id="fb-notice" style="display:none;background:#FEF3C7;border-bottom:1px solid #F59E0B;padding:6px 16px;font-size:11px;color:#92400E;text-align:center;flex-shrink:0">
-  &#9888; Firebase not configured — changes are local only. 
-  <a href="#" onclick="document.getElementById('fb-setup-modal').style.display='flex';return false" style="color:#92400E;font-weight:600;text-decoration:underline">How to connect Firebase</a>
-</div>
-
-<!-- FIREBASE SETUP GUIDE MODAL -->
-<div id="fb-setup-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:500;align-items:center;justify-content:center">
-  <div style="background:#fff;border-radius:14px;padding:28px 32px;max-width:520px;width:90%;font-family:'DM Sans',sans-serif;max-height:85vh;overflow-y:auto">
-    <h3 style="font-size:16px;font-weight:600;margin-bottom:6px">Connect Firebase in 5 steps</h3>
-    <p style="font-size:12px;color:#706E68;margin-bottom:16px;line-height:1.6">Firebase lets everyone see changes in real time. It's free for small teams.</p>
-    <ol style="font-size:13px;line-height:2;color:#1A1917;padding-left:18px">
-      <li>Go to <a href="https://console.firebase.google.com" target="_blank" style="color:#534AB7">console.firebase.google.com</a> and click <strong>Create a project</strong></li>
-      <li>Give it a name (e.g. <em>mdu-pmo</em>), disable Google Analytics, click <strong>Create project</strong></li>
-      <li>Click <strong>Realtime Database</strong> in the left sidebar → <strong>Create Database</strong> → choose any location → <strong>Start in test mode</strong> → Enable</li>
-      <li>Click the ⚙ gear icon → <strong>Project settings</strong> → scroll to <em>Your apps</em> → click <strong>&lt;/&gt;</strong> (Web) → register app → copy the <code>firebaseConfig</code> object</li>
-      <li>Open this HTML file in a text editor, find <code>const firebaseConfig = {</code> near the top, and paste your values in</li>
-    </ol>
-    <p style="font-size:12px;color:#706E68;margin-top:14px;line-height:1.6">After saving and re-uploading to GitHub, all changes will sync in real time for everyone with the link.</p>
-    <button onclick="document.getElementById('fb-setup-modal').style.display='none'" style="margin-top:16px;padding:8px 20px;border-radius:8px;border:1px solid #C8C5BC;background:#F5F4F0;font-family:'DM Sans',sans-serif;font-size:13px;cursor:pointer;font-weight:500">Close</button>
-  </div>
 </div>
 
 <!-- TOOLBAR -->
@@ -397,12 +354,11 @@ body.view-mode #panel{display:none}
   <div class="swatch" style="background:#EEEEFF;border-color:#8B84E0" data-t="t-violet" onclick="setSwatch(this)"></div>
   <div class="tb-sep"></div>
   <button class="tb-btn" id="btn-conn" onclick="toggleConn()">&#9675; Connect</button>
-  
+  <button class="tb-btn" onclick="autoAlign()">&#8803; Auto-align</button>
   <button class="tb-btn" id="btn-undo" onclick="undo()" title="Undo (Ctrl+Z)" style="opacity:.35">&#8630; Undo</button>
   <button class="tb-btn" id="btn-redo" onclick="redo()" title="Redo (Ctrl+Y)" style="opacity:.35">&#8631; Redo</button>
   <button class="tb-btn del" onclick="delSel()">&#10005; Delete</button>
   <div class="tb-sep"></div>
-  <button class="tb-btn" onclick="resetLayout()" title="Reset all nodes back to default layout">&#8635; Reset layout</button>
   <button class="tb-btn exp" onclick="doExport()">&#8595; Export HTML</button>
   <button class="tb-btn exp" onclick="window.print()">Print / PDF</button>
 </div>
@@ -454,8 +410,7 @@ body.view-mode #panel{display:none}
   <span class="sp"><span class="sd" style="background:#2EAE82"></span><span id="sn">0 nodes</span></span>
   <span class="sp"><span class="sd" style="background:#7B72D9"></span><span id="sc">0 conns</span></span>
   <span class="sp" style="margin-left:auto;font-weight:500;color:var(--muted)" id="smode">View mode</span>
-  <span class="sp" style="font-size:10px;color:var(--hint)">Scroll left/right to pan &nbsp;·&nbsp; Shift+scroll = horizontal</span>
-  <span id="sync-status" style="margin-left:auto;font-size:11px;font-weight:500;opacity:0;transition:opacity .4s"></span>
+  <span id="sync-status" style="font-size:11px;font-weight:500;opacity:0;transition:opacity .4s;margin-right:8px"></span><span class="sp" style="font-size:10px;color:var(--hint)">Scroll left/right to pan &nbsp;·&nbsp; Shift+scroll = horizontal</span>
 </div>
 
 <!-- MODAL -->
@@ -475,14 +430,9 @@ body.view-mode #panel{display:none}
 
 <script>
 /* ══ STATE ══ */
-// Core data — also exposed as window globals so Firebase module can access them
-let _firebaseLoaded=false; // set true when Firebase returns saved data
-let _straightConns=new Set();
-let _selConn=null;
-let _draggedNodes=new Set(); // nodes manually dragged away from auto-align
 let nodes=[],conns=[],selId=null,connMode=false,connFrom=null,modalId=null,editMode=false;
-// Keep window globals in sync
-function syncGlobals(){ window._nodes=nodes; window._conns=conns; window._nid=nid; }
+let _firebaseLoaded=false;
+function syncGlobals(){window._nodes=nodes;window._conns=conns;window._nid=nid;}
 let activeSw=document.querySelector('.swatch.active'),activeTheme='t-purple',nid=0;
 let history=[],histIdx=-1,_pauseHistory=false;
 
@@ -494,7 +444,6 @@ function snapshot(){
   if(history.length>60)history.shift();
   histIdx=history.length-1;
   updateUndoUI();
-  // Sync to Firebase
   syncGlobals();
   if(typeof window.firebaseSave==='function') window.firebaseSave();
 }
@@ -520,7 +469,6 @@ function restoreSnap(s){
   selId=null;showPanel(null);
   _pauseHistory=false;
   render();
-  // Push undo/redo state to Firebase too
   syncGlobals();
   if(typeof window.firebaseSave==='function') window.firebaseSave();
 }
@@ -582,29 +530,6 @@ function toggleMode(){
 }
 
 /* ══ AUTO-ALIGN ══ */
-function resetLayout(){
-  if(!confirm('Reset all node positions to default layout? This cannot be undone.')) return;
-  // Reset positions to 0 so autoAlign recalculates cleanly
-  nodes.forEach(n=>{n.x=0;n.y=0;});
-  _draggedNodes=new Set();
-  render();
-  setTimeout(()=>{
-    autoAlign();
-    syncGlobals();
-    if(typeof window.firebaseSave==='function') window.firebaseSave();
-  },100);
-}
-
-function autoAlignOrStraighten(){
-  if(_selConn){
-    // A line is selected — straighten just that one
-    toggleStraight(_selConn);
-  } else {
-    // No selection — run full layout auto-align
-    autoAlign();
-  }
-}
-
 function autoAlign(){
   render();
   const childMap={},parentMap={};
@@ -662,33 +587,21 @@ function autoAlign(){
 
   const lh=Math.max(...byLv[maxLv].map(id=>getH(id)));
   canvas.style.minHeight=(levelY[maxLv]+lh+60)+'px';
-  // Clear dragged set — nodes are back on grid so use straight elbows
-  _draggedNodes = new Set();
   render();
 }
 
 /* ══ RENDER ══ */
 function render(){renderNodes();renderSVG();updateSt();}
 
-// Called by Firebase listener — updates local state then re-renders
-window.applyFirebaseData = function(fbNodes, fbConns, fbNid){
-  _pauseHistory = true;
-  nodes = fbNodes.map(n => ({...n}));
-  conns = fbConns.map(c => ({...c}));
-  nid   = Math.max(nid, fbNid);
-  selId = null;
-  _firebaseLoaded = true;
-  _draggedNodes = new Set(); // loaded from Firebase = treat as aligned
+function applyFirebaseData(fbNodes,fbConns,fbNid){
+  nodes=fbNodes.map(n=>({...n}));
+  conns=fbConns.map(c=>({...c}));
+  nid=Math.max(nid,fbNid);
+  _firebaseLoaded=true;
+  selId=null;
   render();
   showPanel(null);
-  _pauseHistory = false;
-  console.log('[Firebase] Applied', nodes.length, 'nodes,', conns.length, 'conns');
-};
-
-// Legacy alias
-window.renderFromFirebase = function(){
-  if(window._nodes) window.applyFirebaseData(window._nodes, window._conns||[], window._nid||0);
-};
+}
 
 function renderNodes(){
   const ex={};
@@ -699,21 +612,14 @@ function renderNodes(){
       el=document.createElement('div');el.id=n.id;canvas.appendChild(el);
       makeDrag(el,n);
       el.addEventListener('dblclick',e=>{if(editMode){e.stopPropagation();openM(n.id);}});
-      el.addEventListener('click',e=>{
-        e.stopPropagation();
-        if(editMode) handleClick(n.id);
-      });
-      el.addEventListener('mousedown',e=>{
-        // Prevent canvas mousedown from firing when clicking a node
-        e.stopPropagation();
-      });
+      el.addEventListener('click',e=>{e.stopPropagation();if(editMode)handleClick(n.id);});
     }
     delete ex[n.id];
     el.className='node '+n.theme+(selId===n.id?' sel':'')+(connMode?' conn-hover':'');
     el.style.left=n.x+'px';el.style.top=n.y+'px';
 
     let h='';
-    if(editMode) h+=`<div class="node-del">&#10005;</div>`;
+    if(editMode) h+=`<div class="node-del" onclick="event.stopPropagation();delNode('${n.id}')">&#10005;</div>`;
     h+=`<div class="node-name">${esc(n.name)}</div>`;
     if(n.sub)     h+=`<div class="node-sub">${esc(n.sub)}</div>`;
     if(n.section) h+=`<div class="node-section">${esc(n.section)}</div>`;
@@ -722,10 +628,7 @@ function renderNodes(){
       if(lines.length) h+=`<div class="node-items">${lines.map(l=>'&bull; '+esc(l.trim())).join('<br>')}</div>`;
     }
     el.innerHTML=h;
-    if(editMode){
-      const delBtn=el.querySelector('.node-del');
-      if(delBtn) delBtn.addEventListener('click',e=>{e.stopPropagation();delNode(n.id);});
-    }
+    if(editMode) el.querySelector('.node-del').addEventListener('click',e=>{e.stopPropagation();delNode(n.id);});
   });
   Object.values(ex).forEach(el=>el.remove());
 }
@@ -766,44 +669,32 @@ function renderSVG(){
     const gap=y2-y1;
 
     // Always smooth bezier curve
-    const cy=gap*0.5;
-    const d=`M${x1},${y1} C${x1},${y1+cy} ${x2},${y2-cy} ${x2},${y2}`;
-
-    const isSelected=_selConn===c.id;
+    const cy = gap * 0.5;
+    const d = `M${x1},${y1} C${x1},${y1+cy} ${x2},${y2-cy} ${x2},${y2}`;
     const path=se('path');
     path.setAttribute('d',d);
     path.setAttribute('fill','none');
-    path.setAttribute('stroke',isSelected?'#534AB7':'#C0BAE8');
-    path.setAttribute('stroke-width',isSelected?'2.5':'1.3');
+    path.setAttribute('stroke','#C0BAE8');
+    path.setAttribute('stroke-width','1.3');
     path.setAttribute('marker-end','url(#arr)');
     if(editMode){
-      path.style.pointerEvents='stroke';
-      path.style.cursor='pointer';
-      path.addEventListener('click',e=>{
-        e.stopPropagation();
-        _selConn=(_selConn===c.id)?null:c.id;
-        renderSVG();
-        updateConnPanel(c.id);
-      });
+      path.style.pointerEvents='stroke';path.style.cursor='pointer';
+      path.addEventListener('click',e=>{e.stopPropagation();delConn(c.id);});
     }
     svgl.appendChild(path);
 
-    if(editMode && _selConn===c.id){
-      // Only show delete button on the selected connection
-      const mx=(x1+x2)/2;
-      const my=(y1+y2)/2;
+    if(editMode){
+      const mx=(x1+x2)/2, my=(y1+y2)/2;
       const fo=document.createElementNS('http://www.w3.org/2000/svg','foreignObject');
       fo.setAttribute('x',mx-7);fo.setAttribute('y',my-7);
       fo.setAttribute('width','14');fo.setAttribute('height','14');
       fo.style.overflow='visible';fo.style.pointerEvents='all';
       const btn=document.createElement('div');
-      btn.className='cdel visible';btn.innerHTML='&times;';
+      btn.className='cdel';btn.innerHTML='&times;';
       btn.addEventListener('click',e=>{e.stopPropagation();delConn(c.id);});
       fo.appendChild(btn);svgl.appendChild(fo);
     }
   });
-
-
 }
 
 function updateSt(){
@@ -816,16 +707,12 @@ function makeDrag(el,n){
   let ox,oy,sx,sy,mv=false;
   el.addEventListener('mousedown',e=>{
     if(!editMode||e.target.classList.contains('node-del'))return;
-    // Store starting node position and starting mouse position
-    ox=n.x; oy=n.y;
-    sx=e.clientX; sy=e.clientY;
-    mv=false;
+    ox=n.x;oy=n.y;sx=e.clientX;sy=e.clientY;mv=false;
     window._dragging=true;
     const mm=ev=>{
-      // Delta is purely mouse movement — no scroll or rect math needed
       const dx=ev.clientX-sx;
       const dy=ev.clientY-sy;
-      if(Math.abs(dx)+Math.abs(dy)>3) mv=true;
+      if(Math.abs(dx)+Math.abs(dy)>3)mv=true;
       n.x=Math.max(0,ox+dx);
       n.y=Math.max(0,oy+dy);
       el.style.left=n.x+'px';
@@ -836,11 +723,7 @@ function makeDrag(el,n){
       window.removeEventListener('mousemove',mm);
       window.removeEventListener('mouseup',mu);
       window._dragging=false;
-      if(mv){
-        syncGlobals();
-        snapshot();
-        render();
-      }
+      if(mv){syncGlobals();snapshot();render();}
     };
     window.addEventListener('mousemove',mm);
     window.addEventListener('mouseup',mu);
@@ -895,7 +778,7 @@ function renderSVG(){
     const y2=tn.y;
     const gap=y2-y1;
 
-    // Always bezier curve regardless of node type
+    // Always bezier curve
     const cy=gap*0.5;
     const d=`M${x1},${y1} C${x1},${y1+cy} ${x2},${y2-cy} ${x2},${y2}`;
 
@@ -905,27 +788,15 @@ function renderSVG(){
     path.setAttribute('stroke','#C0BAE8');
     path.setAttribute('stroke-width','1.3');
     path.setAttribute('marker-end','url(#arr)');
-    // Always make lines selectable (even in view mode for visual feedback)
-    const isSelected = _selConn === c.id;
-    path.setAttribute('stroke', isSelected ? '#534AB7' : '#C0BAE8');
-    path.setAttribute('stroke-width', isSelected ? '2.5' : '1.3');
-    if(isSelected) path.setAttribute('stroke-dasharray', '');
-
     if(editMode){
       path.style.pointerEvents='stroke';
       path.style.cursor='pointer';
-      path.addEventListener('click',e=>{
-        e.stopPropagation();
-        if(_selConn===c.id){ _selConn=null; } // deselect
-        else { _selConn=c.id; }
-        renderSVG();
-        updateConnPanel(c.id);
-      });
+      path.addEventListener('click',e=>{e.stopPropagation();delConn(c.id);});
     }
     svgl.appendChild(path);
 
     if(editMode){
-      const mx=(x1+x2)/2,my=(y1+y2)/2;
+      const mx=(x1+x2)/2,my=isTopLevel?Math.round(y1+gap/2):(y1+y2)/2;
       const fo=document.createElementNS('http://www.w3.org/2000/svg','foreignObject');
       fo.setAttribute('x',mx-7);fo.setAttribute('y',my-7);
       fo.setAttribute('width','14');fo.setAttribute('height','14');
@@ -955,11 +826,7 @@ function handleClick(id){
 }
 
 canvas.addEventListener('click',e=>{
-  if(e.target===canvas||e.target===svgl){
-    selId=null;_selConn=null;
-    if(editMode)showPanel(null);
-    render();
-  }
+  if(e.target===canvas||e.target===svgl){selId=null;if(editMode)showPanel(null);render();}
 });
 
 function toggleConn(force){
@@ -1019,33 +886,6 @@ function showPanel(id){
     <div class="pg" style="margin-top:2px"><button class="pbtn pbtn-conn" onclick="connFrom2('${id}')">+ Connect to node</button></div>
     <div class="pg"><button class="pbtn pbtn-del" onclick="delNode('${id}')">Delete node</button></div>`;
 }
-function updateConnPanel(connId){
-  if(!connId||!editMode)return;
-  const pb=document.getElementById('pb');
-  const isStraight=_straightConns.has(connId);
-  pb.innerHTML=`
-    <div class="pe" style="padding-top:10px"><strong style="font-size:12px">Connection selected</strong></div>
-    <div class="pg">
-      <button class="pbtn" style="background:var(--purple-bg);color:var(--purple-tx);border-color:var(--purple-bd)" onclick="toggleStraight('${connId}')">
-        ${isStraight?'~ Make curved':'— Straighten line'}
-      </button>
-    </div>
-    <div class="pg"><button class="pbtn pbtn-del" onclick="delConnSel('${connId}')">Delete connection</button></div>
-    <div class="pg"><button class="pbtn" style="background:var(--gray-bg);color:var(--gray-tx);border-color:var(--gray-bd)" onclick="_selConn=null;renderSVG();showPanel(null)">Deselect</button></div>`;
-}
-
-function toggleStraight(connId){
-  if(_straightConns.has(connId))_straightConns.delete(connId);
-  else _straightConns.add(connId);
-  renderSVG();
-  updateConnPanel(connId);
-}
-
-function delConnSel(connId){
-  _selConn=null;_straightConns.delete(connId);
-  delConn(connId);showPanel(null);
-}
-
 let _luTimer=null;
 function lu(id,f,v){
   const n=nodes.find(x=>x.id===id);if(!n)return;
@@ -1196,8 +1036,10 @@ window.addEventListener('load',function(){
     var x1=fe.offsetLeft+fe.offsetWidth/2,y1=fe.offsetTop+fe.offsetHeight;
     var x2=te.offsetLeft+te.offsetWidth/2,y2=te.offsetTop;
     var gap=y2-y1;
-    var cy=gap*0.5;
-    var d='M'+x1+','+y1+' C'+x1+','+(y1+cy)+' '+x2+','+(y2-cy)+' '+x2+','+y2;
+    var isTop=(c.from==='n0'||c.from==='n1');
+    var d;
+    if(isTop){var mid=Math.round(y1+gap/2);d='M'+x1+','+y1+' L'+x1+','+mid+' L'+x2+','+mid+' L'+x2+','+y2;}
+    else{var cy1=y1+gap*0.5,cy2=y2-gap*0.5;d='M'+x1+','+y1+' C'+x1+','+cy1+' '+x2+','+cy2+' '+x2+','+y2;}
     var p=document.createElementNS('http://www.w3.org/2000/svg','path');
     p.setAttribute('d',d);
     p.setAttribute('fill','none');p.setAttribute('stroke','#C0BAE8');p.setAttribute('stroke-width','1.3');p.setAttribute('marker-end','url(#a)');
@@ -1227,34 +1069,6 @@ async function hashStr(str){
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 
-function checkCaps(e){
-  if(!e || !e.getModifierState) return;
-  const caps = e.getModifierState('CapsLock');
-  const el = document.getElementById('pw-caps');
-  el.style.display = caps ? 'block' : 'none';
-}
-
-
-
-function checkCapsOnFocus(){
-  /* Cannot read CapsLock without a KeyboardEvent — hide the warning on focus */
-  document.getElementById('pw-caps').style.display='none';
-}
-
-function togglePWVisible(){
-  const inp = document.getElementById('pw-input');
-  const eye = document.getElementById('pw-eye');
-  if(inp.type === 'password'){
-    inp.type = 'text';
-    eye.innerHTML = '&#128064;';
-    eye.title = 'Hide password';
-  } else {
-    inp.type = 'password';
-    eye.innerHTML = '&#128065;';
-    eye.title = 'Show password';
-  }
-}
-
 async function checkPW(){
   const val=document.getElementById('pw-input').value;
   const hash=await hashStr(val);
@@ -1277,35 +1091,18 @@ async function initAuth(){
   if(stored===PW_HASH){
     document.getElementById('pw-screen').style.display='none';
   } else {
+    // Keep screen visible, focus input
     setTimeout(()=>document.getElementById('pw-input').focus(),100);
   }
 }
 initAuth();
 
-// Show Firebase notice if config not filled in
-window.addEventListener('load',function(){
-  setTimeout(function(){
-    const scripts=document.querySelectorAll('script[type="module"]');
-    const src=Array.from(scripts).map(s=>s.textContent).join('');
-    if(src.includes('PASTE_API_KEY')){
-      const n=document.getElementById('fb-notice');
-      if(n) n.style.display='block';
-    }
-  },500);
-});
-
 /* ══ BOOT ══ */
-// On boot: render default data first, then wait for Firebase.
-// If Firebase returns saved data within 2s, use that instead of auto-aligning.
-// If no Firebase data exists yet, run autoAlign on the defaults.
 render();
 syncGlobals();
-
-// Give Firebase 2 seconds to load saved data before falling back to autoAlign
+// Wait up to 2s for Firebase to load saved positions before auto-aligning
 setTimeout(function(){
   if(!_firebaseLoaded){
-    // No Firebase data came — first time ever, run autoAlign
-    console.log('[Boot] No Firebase data, running autoAlign');
     autoAlign();
     syncGlobals();
   }
@@ -1313,11 +1110,11 @@ setTimeout(function(){
   const sa=document.getElementById('scroll-area');
   setTimeout(function(){
     const page=document.getElementById('page');
-    const centerX=(page.offsetWidth - sa.offsetWidth)/2;
+    const centerX=(page.offsetWidth-sa.offsetWidth)/2;
     sa.scrollLeft=Math.max(0,centerX);
     updateUndoUI();
   },80);
-}, 2000);
+},2000);
 </script>
 </body>
 </html>
