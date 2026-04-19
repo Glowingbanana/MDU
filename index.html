@@ -248,7 +248,7 @@ body.view-mode .cdel{display:none}
 
   const app = initializeApp(firebaseConfig);
   const db  = getDatabase(app);
-  const chartRef = ref(db, 'mdu_pmo_chart');
+  const chartRef = ref(db, 'mdu_pmo_chart_v2'); // unique key — won't affect other files
 
   // Unique ID for this tab — we only apply data saved by OTHER tabs
   const MY_TAB = 'tab_' + Math.random().toString(36).slice(2);
