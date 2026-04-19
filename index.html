@@ -229,6 +229,78 @@ body.view-mode .cdel{display:none}
 #pw-error{font-size:12px;color:#A32D2D;margin-top:8px;min-height:16px}
 #pw-lock{font-size:32px;margin-bottom:16px}
 </style>
+
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+  import { getDatabase, ref, set, onValue, serverTimestamp }
+    from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
+
+  // ── PASTE YOUR FIREBASE CONFIG HERE ──
+  // (Replace everything inside firebaseConfig with your own values)
+  const firebaseConfig = {
+    apiKey:            "AIzaSyBaKXVl3yK3sdhC1roiwTQJSTgjLnrLVDE",
+    authDomain:        "mdu-pmo.firebaseapp.com",
+    databaseURL:       "https://mdu-pmo-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId:         "mdu-pmo",
+    storageBucket:     "mdu-pmo.firebasestorage.app",
+    messagingSenderId: "648846201230",
+    appId:             "1:648846201230:web:baf5309d663df03c8c94df"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db  = getDatabase(app);
+  const chartRef = ref(db, 'mdu_pmo_chart');
+
+  let _suppressRemote = false;  // stop echo when we are the ones saving
+  let _saveTimer = null;
+
+  // ── SAVE to Firebase ──
+  window.firebaseSave = function() {
+    clearTimeout(_saveTimer);
+    _saveTimer = setTimeout(async () => {
+      _suppressRemote = true;
+      await set(chartRef, {
+        nodes: window._nodes,
+        conns: window._conns,
+        nid:   window._nid,
+        updatedAt: Date.now()
+      });
+      showSyncStatus('saved');
+      setTimeout(() => { _suppressRemote = false; }, 1500);
+    }, 800); // debounce — save 800 ms after last change
+  };
+
+  // ── LISTEN for remote changes ──
+  onValue(chartRef, (snap) => {
+    if (_suppressRemote) return;
+    const data = snap.val();
+    if (!data) return;
+    // Someone else changed the chart — reload into editor
+    window._nodes = data.nodes || [];
+    window._conns = data.conns || [];
+    window._nid   = data.nid   || 0;
+    if (typeof window.renderFromFirebase === 'function') {
+      window.renderFromFirebase();
+    }
+    showSyncStatus('received');
+  });
+
+  function showSyncStatus(type) {
+    const el = document.getElementById('sync-status');
+    if (!el) return;
+    if (type === 'saved') {
+      el.textContent = '✓ Saved to cloud';
+      el.style.color = '#0A6648';
+    } else {
+      el.textContent = '↓ Chart updated by another user';
+      el.style.color = '#534AB7';
+    }
+    el.style.opacity = '1';
+    clearTimeout(el._t);
+    el._t = setTimeout(() => { el.style.opacity = '0'; }, 3000);
+  }
+</script>
 </head>
 <body class="view-mode">
 <!-- PASSWORD SCREEN -->
@@ -263,6 +335,29 @@ body.view-mode .cdel{display:none}
   <span class="mode-dot"></span>
   <span id="mlabel">View mode — chart is locked</span>
   <button id="mode-toggle" onclick="toggleMode()">Switch to Edit</button>
+</div>
+
+<!-- FIREBASE CONFIG NOTICE (only shown if not configured) -->
+<div id="fb-notice" style="display:none;background:#FEF3C7;border-bottom:1px solid #F59E0B;padding:6px 16px;font-size:11px;color:#92400E;text-align:center;flex-shrink:0">
+  &#9888; Firebase not configured — changes are local only. 
+  <a href="#" onclick="document.getElementById('fb-setup-modal').style.display='flex';return false" style="color:#92400E;font-weight:600;text-decoration:underline">How to connect Firebase</a>
+</div>
+
+<!-- FIREBASE SETUP GUIDE MODAL -->
+<div id="fb-setup-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:500;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:14px;padding:28px 32px;max-width:520px;width:90%;font-family:'DM Sans',sans-serif;max-height:85vh;overflow-y:auto">
+    <h3 style="font-size:16px;font-weight:600;margin-bottom:6px">Connect Firebase in 5 steps</h3>
+    <p style="font-size:12px;color:#706E68;margin-bottom:16px;line-height:1.6">Firebase lets everyone see changes in real time. It's free for small teams.</p>
+    <ol style="font-size:13px;line-height:2;color:#1A1917;padding-left:18px">
+      <li>Go to <a href="https://console.firebase.google.com" target="_blank" style="color:#534AB7">console.firebase.google.com</a> and click <strong>Create a project</strong></li>
+      <li>Give it a name (e.g. <em>mdu-pmo</em>), disable Google Analytics, click <strong>Create project</strong></li>
+      <li>Click <strong>Realtime Database</strong> in the left sidebar → <strong>Create Database</strong> → choose any location → <strong>Start in test mode</strong> → Enable</li>
+      <li>Click the ⚙ gear icon → <strong>Project settings</strong> → scroll to <em>Your apps</em> → click <strong>&lt;/&gt;</strong> (Web) → register app → copy the <code>firebaseConfig</code> object</li>
+      <li>Open this HTML file in a text editor, find <code>const firebaseConfig = {</code> near the top, and paste your values in</li>
+    </ol>
+    <p style="font-size:12px;color:#706E68;margin-top:14px;line-height:1.6">After saving and re-uploading to GitHub, all changes will sync in real time for everyone with the link.</p>
+    <button onclick="document.getElementById('fb-setup-modal').style.display='none'" style="margin-top:16px;padding:8px 20px;border-radius:8px;border:1px solid #C8C5BC;background:#F5F4F0;font-family:'DM Sans',sans-serif;font-size:13px;cursor:pointer;font-weight:500">Close</button>
+  </div>
 </div>
 
 <!-- TOOLBAR -->
@@ -338,6 +433,7 @@ body.view-mode .cdel{display:none}
   <span class="sp"><span class="sd" style="background:#7B72D9"></span><span id="sc">0 conns</span></span>
   <span class="sp" style="margin-left:auto;font-weight:500;color:var(--muted)" id="smode">View mode</span>
   <span class="sp" style="font-size:10px;color:var(--hint)">Scroll left/right to pan &nbsp;·&nbsp; Shift+scroll = horizontal</span>
+  <span id="sync-status" style="margin-left:auto;font-size:11px;font-weight:500;opacity:0;transition:opacity .4s"></span>
 </div>
 
 <!-- MODAL -->
@@ -357,7 +453,10 @@ body.view-mode .cdel{display:none}
 
 <script>
 /* ══ STATE ══ */
+// Core data — also exposed as window globals so Firebase module can access them
 let nodes=[],conns=[],selId=null,connMode=false,connFrom=null,modalId=null,editMode=false;
+// Keep window globals in sync
+function syncGlobals(){ window._nodes=nodes; window._conns=conns; window._nid=nid; }
 let activeSw=document.querySelector('.swatch.active'),activeTheme='t-purple',nid=0;
 let history=[],histIdx=-1,_pauseHistory=false;
 
@@ -369,6 +468,9 @@ function snapshot(){
   if(history.length>60)history.shift();
   histIdx=history.length-1;
   updateUndoUI();
+  // Sync to Firebase
+  syncGlobals();
+  if(typeof window.firebaseSave==='function') window.firebaseSave();
 }
 
 function undo(){
@@ -392,6 +494,9 @@ function restoreSnap(s){
   selId=null;showPanel(null);
   _pauseHistory=false;
   render();
+  // Push undo/redo state to Firebase too
+  syncGlobals();
+  if(typeof window.firebaseSave==='function') window.firebaseSave();
 }
 
 function updateUndoUI(){
@@ -513,6 +618,13 @@ function autoAlign(){
 
 /* ══ RENDER ══ */
 function render(){renderNodes();renderSVG();updateSt();}
+
+// Called by Firebase listener when remote data arrives
+window.renderFromFirebase = function(){
+  _pauseHistory=true;
+  render();
+  _pauseHistory=false;
+};
 
 function renderNodes(){
   const ex={};
@@ -1051,16 +1163,29 @@ async function initAuth(){
   if(stored===PW_HASH){
     document.getElementById('pw-screen').style.display='none';
   } else {
-    // Keep screen visible, focus input
     setTimeout(()=>document.getElementById('pw-input').focus(),100);
   }
 }
 initAuth();
 
+// Show Firebase notice if config not filled in
+window.addEventListener('load',function(){
+  setTimeout(function(){
+    const scripts=document.querySelectorAll('script[type="module"]');
+    const src=Array.from(scripts).map(s=>s.textContent).join('');
+    if(src.includes('PASTE_API_KEY')){
+      const n=document.getElementById('fb-notice');
+      if(n) n.style.display='block';
+    }
+  },500);
+});
+
 /* ══ BOOT ══ */
 render();
+syncGlobals(); // expose to Firebase module on first load
 setTimeout(function(){
   autoAlign();
+  syncGlobals();
   snapshot(); // initial state
   const sa=document.getElementById('scroll-area');
   setTimeout(function(){
