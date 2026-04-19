@@ -303,6 +303,11 @@ body.view-mode #panel{display:none}
       _firstLoad = false;
       return;
     }
+    // Also skip if we just saved (within 3 seconds) to avoid echo
+    if (!_firstLoad && _lastSaveTime && (Date.now() - _lastSaveTime) < 3000) {
+      console.log('[Firebase] Skipping — too soon after our own save');
+      return;
+    }
 
     // On first load always apply (loads saved state on page open)
     // On subsequent fires only apply if savedAt is newer than our last save
@@ -718,14 +723,21 @@ function renderNodes(){
       el=document.createElement('div');el.id=n.id;canvas.appendChild(el);
       makeDrag(el,n);
       el.addEventListener('dblclick',e=>{if(editMode){e.stopPropagation();openM(n.id);}});
-      el.addEventListener('click',e=>{e.stopPropagation();if(editMode)handleClick(n.id);});
+      el.addEventListener('click',e=>{
+        e.stopPropagation();
+        if(editMode) handleClick(n.id);
+      });
+      el.addEventListener('mousedown',e=>{
+        // Prevent canvas mousedown from firing when clicking a node
+        e.stopPropagation();
+      });
     }
     delete ex[n.id];
     el.className='node '+n.theme+(selId===n.id?' sel':'')+(connMode?' conn-hover':'');
     el.style.left=n.x+'px';el.style.top=n.y+'px';
 
     let h='';
-    if(editMode) h+=`<div class="node-del" onclick="event.stopPropagation();delNode('${n.id}')">&#10005;</div>`;
+    if(editMode) h+=`<div class="node-del">&#10005;</div>`;
     h+=`<div class="node-name">${esc(n.name)}</div>`;
     if(n.sub)     h+=`<div class="node-sub">${esc(n.sub)}</div>`;
     if(n.section) h+=`<div class="node-section">${esc(n.section)}</div>`;
@@ -734,7 +746,10 @@ function renderNodes(){
       if(lines.length) h+=`<div class="node-items">${lines.map(l=>'&bull; '+esc(l.trim())).join('<br>')}</div>`;
     }
     el.innerHTML=h;
-    if(editMode) el.querySelector('.node-del').addEventListener('click',e=>{e.stopPropagation();delNode(n.id);});
+    if(editMode){
+      const delBtn=el.querySelector('.node-del');
+      if(delBtn) delBtn.addEventListener('click',e=>{e.stopPropagation();delNode(n.id);});
+    }
   });
   Object.values(ex).forEach(el=>el.remove());
 }
@@ -825,21 +840,16 @@ function makeDrag(el,n){
   let ox,oy,sx,sy,mv=false;
   el.addEventListener('mousedown',e=>{
     if(!editMode||e.target.classList.contains('node-del'))return;
-    ox=n.x;oy=n.y;
-    // Use canvas-relative position to avoid scroll offset issues
-    const canvasRect=canvas.getBoundingClientRect();
-    sx=e.clientX-canvasRect.left;
-    sy=e.clientY-canvasRect.top;
+    // Store starting node position and starting mouse position
+    ox=n.x; oy=n.y;
+    sx=e.clientX; sy=e.clientY;
     mv=false;
-    // Pause Firebase listener while dragging so it can't snap nodes back
     window._dragging=true;
     const mm=ev=>{
-      const cr=canvas.getBoundingClientRect();
-      const cx=ev.clientX-cr.left;
-      const cy2=ev.clientY-cr.top;
-      const dx=cx-sx;
-      const dy=cy2-sy;
-      if(Math.abs(dx)+Math.abs(dy)>3)mv=true;
+      // Delta is purely mouse movement — no scroll or rect math needed
+      const dx=ev.clientX-sx;
+      const dy=ev.clientY-sy;
+      if(Math.abs(dx)+Math.abs(dy)>3) mv=true;
       n.x=Math.max(0,ox+dx);
       n.y=Math.max(0,oy+dy);
       el.style.left=n.x+'px';
@@ -859,6 +869,7 @@ function makeDrag(el,n){
     window.addEventListener('mousemove',mm);
     window.addEventListener('mouseup',mu);
     e.preventDefault();
+    e.stopPropagation();
   });
 }
 
