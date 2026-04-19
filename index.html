@@ -740,21 +740,32 @@ function renderSVG(){
     const gap=y2-y1;
 
     // Auto-straighten: if nodes are nearly horizontally aligned, snap to straight vertical.
-    // Auto-straighten: snap to a clean vertical if the two centres are within
-    // SNAP_PX horizontally. This catches cases like Angeline→Michael where the
-    // nodes are almost but not quite directly above each other.
+    // Smart connector:
+    // 1. Nearly vertical → straight line
+    // 2. Parent has multiple children at same Y → draw as org-chart bus (handled below)
+    // 3. Otherwise → smooth bezier
     const hDiff = Math.abs(x1 - x2);
-    const SNAP_PX = 80; // snap if centres within 80px horizontally
+    const SNAP_PX = 24;
     const isNearlyVertical = hDiff <= SNAP_PX;
-    const isTopLevel = (fn.id==='n0' || fn.id==='n1');
+
+    // Check if this parent has multiple children all at same Y (org-chart bus)
+    const siblings = conns
+      .filter(cc => cc.from === c.from)
+      .map(cc => nodes.find(n => n.id === cc.to))
+      .filter(Boolean);
+    const sibEls = siblings.map(n => document.getElementById(n.id)).filter(Boolean);
+    const sibYs = siblings.map(n => n.y);
+    const allSameY = siblings.length > 1 && sibYs.every(y => Math.abs(y - sibYs[0]) < 10);
+
     let d;
     if(isNearlyVertical){
-      // Straight vertical — split the difference so line is centred between both nodes
       const mx = Math.round((x1 + x2) / 2);
       d=`M${mx},${y1} L${mx},${y2}`;
-    } else if(isTopLevel){
-      const mid = Math.round(y1 + gap / 2);
-      d=`M${x1},${y1} L${x1},${mid} L${x2},${mid} L${x2},${y2}`;
+    } else if(allSameY && siblings.length > 1){
+      // Org-chart bus: only draw the vertical drop from bus bar to this child
+      // The horizontal bar and parent stem are drawn separately after all conns
+      const busY = Math.round(y1 + gap * 0.5);
+      d=`M${x2},${busY} L${x2},${y2}`;
     } else {
       const cy = gap * 0.5;
       d=`M${x1},${y1} C${x1},${y1+cy} ${x2},${y2-cy} ${x2},${y2}`;
@@ -782,6 +793,54 @@ function renderSVG(){
       btn.addEventListener('click',e=>{e.stopPropagation();delConn(c.id);});
       fo.appendChild(btn);svgl.appendChild(fo);
     }
+  });
+
+  // Draw org-chart bus bars: one horizontal line across all siblings at same Y
+  const drawnBars = new Set();
+  conns.forEach(c => {
+    if(drawnBars.has(c.from)) return;
+    const siblings = conns
+      .filter(cc => cc.from === c.from)
+      .map(cc => nodes.find(n => n.id === cc.to))
+      .filter(Boolean);
+    if(siblings.length <= 1) return;
+    const sibEls = siblings.map(n => document.getElementById(n.id)).filter(Boolean);
+    if(sibEls.length < 2) return;
+    const sibYs = siblings.map(n => n.y);
+    const allSameY = sibYs.every(y => Math.abs(y - sibYs[0]) < 10);
+    if(!allSameY) return;
+
+    const parentNode = nodes.find(n => n.id === c.from);
+    const parentEl = document.getElementById(c.from);
+    if(!parentNode || !parentEl) return;
+
+    const px = parentNode.x + parentEl.offsetWidth / 2;
+    const py = parentNode.y + parentEl.offsetHeight;
+    const childY = siblings[0].y;
+    const busY = Math.round(py + (childY - py) * 0.5);
+
+    const xs = siblings.map((n, i) => {
+      const el = sibEls[i] || document.getElementById(n.id);
+      return el ? n.x + el.offsetWidth / 2 : n.x;
+    });
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+
+    // Horizontal bar
+    const bar = se('line');
+    bar.setAttribute('x1', minX); bar.setAttribute('y1', busY);
+    bar.setAttribute('x2', maxX); bar.setAttribute('y2', busY);
+    bar.setAttribute('stroke', '#C0BAE8'); bar.setAttribute('stroke-width', '1.3');
+    svgl.appendChild(bar);
+
+    // Vertical stem from parent to bar
+    const stem = se('line');
+    stem.setAttribute('x1', px); stem.setAttribute('y1', py);
+    stem.setAttribute('x2', px); stem.setAttribute('y2', busY);
+    stem.setAttribute('stroke', '#C0BAE8'); stem.setAttribute('stroke-width', '1.3');
+    svgl.appendChild(stem);
+
+    drawnBars.add(c.from);
   });
 }
 
