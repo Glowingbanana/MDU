@@ -411,7 +411,7 @@ body.view-mode .cdel{display:none}
   <div class="swatch" style="background:#EEEEFF;border-color:#8B84E0" data-t="t-violet" onclick="setSwatch(this)"></div>
   <div class="tb-sep"></div>
   <button class="tb-btn" id="btn-conn" onclick="toggleConn()">&#9675; Connect</button>
-  <button class="tb-btn" onclick="autoAlign()">&#8803; Auto-align</button>
+  
   <button class="tb-btn" id="btn-undo" onclick="undo()" title="Undo (Ctrl+Z)" style="opacity:.35">&#8630; Undo</button>
   <button class="tb-btn" id="btn-redo" onclick="redo()" title="Redo (Ctrl+Y)" style="opacity:.35">&#8631; Redo</button>
   <button class="tb-btn del" onclick="delSel()">&#10005; Delete</button>
@@ -490,6 +490,9 @@ body.view-mode .cdel{display:none}
 /* ══ STATE ══ */
 // Core data — also exposed as window globals so Firebase module can access them
 let _firebaseLoaded=false; // set true when Firebase returns saved data
+let _straightConns=new Set();
+let _selConn=null;
+let _draggedNodes=new Set(); // nodes manually dragged away from auto-align
 let nodes=[],conns=[],selId=null,connMode=false,connFrom=null,modalId=null,editMode=false;
 // Keep window globals in sync
 function syncGlobals(){ window._nodes=nodes; window._conns=conns; window._nid=nid; }
@@ -592,6 +595,16 @@ function toggleMode(){
 }
 
 /* ══ AUTO-ALIGN ══ */
+function autoAlignOrStraighten(){
+  if(_selConn){
+    // A line is selected — straighten just that one
+    toggleStraight(_selConn);
+  } else {
+    // No selection — run full layout auto-align
+    autoAlign();
+  }
+}
+
 function autoAlign(){
   render();
   const childMap={},parentMap={};
@@ -649,6 +662,8 @@ function autoAlign(){
 
   const lh=Math.max(...byLv[maxLv].map(id=>getH(id)));
   canvas.style.minHeight=(levelY[maxLv]+lh+60)+'px';
+  // Clear dragged set — nodes are back on grid so use straight elbows
+  _draggedNodes = new Set();
   render();
 }
 
@@ -662,7 +677,8 @@ window.applyFirebaseData = function(fbNodes, fbConns, fbNid){
   conns = fbConns.map(c => ({...c}));
   nid   = Math.max(nid, fbNid);
   selId = null;
-  _firebaseLoaded = true; // prevent autoAlign from overwriting on boot
+  _firebaseLoaded = true;
+  _draggedNodes = new Set(); // loaded from Firebase = treat as aligned
   render();
   showPanel(null);
   _pauseHistory = false;
@@ -739,51 +755,32 @@ function renderSVG(){
     const y2=tn.y;
     const gap=y2-y1;
 
-    // Auto-straighten: if nodes are nearly horizontally aligned, snap to straight vertical.
-    // Smart connector:
-    // 1. Nearly vertical (within 24px) → snap to straight vertical
-    // 2. All siblings at same Y → bus-bar org chart style (vertical drop only, bar drawn separately)
-    // 3. Everything else → smooth bezier (works even when dragged anywhere)
-    const hDiff = Math.abs(x1 - x2);
-    const SNAP_PX = 24;
-    const isNearlyVertical = hDiff <= SNAP_PX;
+    // Always smooth bezier curve
+    const cy=gap*0.5;
+    const d=`M${x1},${y1} C${x1},${y1+cy} ${x2},${y2-cy} ${x2},${y2}`;
 
-    // Check siblings only for the bus-bar optimisation
-    const siblings = conns
-      .filter(cc => cc.from === c.from)
-      .map(cc => nodes.find(n => n.id === cc.to))
-      .filter(Boolean);
-    const sibYs = siblings.map(n => n.y);
-    const allSameY = siblings.length > 1 && sibYs.every(y => Math.abs(y - sibYs[0]) < 10);
-
-    let d;
-    if(isNearlyVertical){
-      // Straight vertical — perfectly aligned
-      const mx = Math.round((x1 + x2) / 2);
-      d=`M${mx},${y1} L${mx},${y2}`;
-    } else if(allSameY){
-      // Bus bar — only the vertical drop; horizontal bar drawn in post-pass
-      const busY = Math.round(y1 + gap * 0.5);
-      d=`M${x2},${busY} L${x2},${y2}`;
-    } else {
-      // Smooth bezier — works for any position, including after dragging
-      const cy = gap * 0.5;
-      d=`M${x1},${y1} C${x1},${y1+cy} ${x2},${y2-cy} ${x2},${y2}`;
-    }
+    const isSelected=_selConn===c.id;
     const path=se('path');
     path.setAttribute('d',d);
     path.setAttribute('fill','none');
-    path.setAttribute('stroke','#C0BAE8');
-    path.setAttribute('stroke-width','1.3');
+    path.setAttribute('stroke',isSelected?'#534AB7':'#C0BAE8');
+    path.setAttribute('stroke-width',isSelected?'2.5':'1.3');
     path.setAttribute('marker-end','url(#arr)');
     if(editMode){
-      path.style.pointerEvents='stroke';path.style.cursor='pointer';
-      path.addEventListener('click',e=>{e.stopPropagation();delConn(c.id);});
+      path.style.pointerEvents='stroke';
+      path.style.cursor='pointer';
+      path.addEventListener('click',e=>{
+        e.stopPropagation();
+        _selConn=(_selConn===c.id)?null:c.id;
+        renderSVG();
+        updateConnPanel(c.id);
+      });
     }
     svgl.appendChild(path);
 
     if(editMode){
-      const mx=(x1+x2)/2, my=mid;
+      const mx=(x1+x2)/2;
+      const my=(y1+y2)/2;
       const fo=document.createElementNS('http://www.w3.org/2000/svg','foreignObject');
       fo.setAttribute('x',mx-7);fo.setAttribute('y',my-7);
       fo.setAttribute('width','14');fo.setAttribute('height','14');
@@ -795,54 +792,7 @@ function renderSVG(){
     }
   });
 
-  // Draw org-chart bus bars — only when ALL siblings are at the same Y level
-  // If any sibling has been dragged to a different Y, skip the bar entirely
-  const drawnBars = new Set();
-  conns.forEach(c => {
-    if(drawnBars.has(c.from)) return;
-    const siblings = conns
-      .filter(cc => cc.from === c.from)
-      .map(cc => nodes.find(n => n.id === cc.to))
-      .filter(Boolean);
-    if(siblings.length <= 1) return;
-    const sibEls = siblings.map(n => document.getElementById(n.id)).filter(Boolean);
-    if(sibEls.length < 2) return;
-    const sibYs = siblings.map(n => n.y);
-    const allSameY = sibYs.every(y => Math.abs(y - sibYs[0]) < 10);
-    if(!allSameY) return; // Someone dragged a node — let bezier curves handle it
 
-    const parentNode = nodes.find(n => n.id === c.from);
-    const parentEl = document.getElementById(c.from);
-    if(!parentNode || !parentEl) return;
-
-    const px = parentNode.x + parentEl.offsetWidth / 2;
-    const py = parentNode.y + parentEl.offsetHeight;
-    const childY = siblings[0].y;
-    const busY = Math.round(py + (childY - py) * 0.5);
-
-    const xs = siblings.map((n, i) => {
-      const el = sibEls[i] || document.getElementById(n.id);
-      return el ? n.x + el.offsetWidth / 2 : n.x;
-    });
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-
-    // Horizontal bar
-    const bar = se('line');
-    bar.setAttribute('x1', minX); bar.setAttribute('y1', busY);
-    bar.setAttribute('x2', maxX); bar.setAttribute('y2', busY);
-    bar.setAttribute('stroke', '#C0BAE8'); bar.setAttribute('stroke-width', '1.3');
-    svgl.appendChild(bar);
-
-    // Vertical stem from parent to bar
-    const stem = se('line');
-    stem.setAttribute('x1', px); stem.setAttribute('y1', py);
-    stem.setAttribute('x2', px); stem.setAttribute('y2', busY);
-    stem.setAttribute('stroke', '#C0BAE8'); stem.setAttribute('stroke-width', '1.3');
-    svgl.appendChild(stem);
-
-    drawnBars.add(c.from);
-  });
 }
 
 function updateSt(){
@@ -865,6 +815,7 @@ function makeDrag(el,n){
       n.y=Math.max(0,oy+dy);
       el.style.left=n.x+'px';
       el.style.top=n.y+'px';
+      _draggedNodes.add(n.id); // mark as manually positioned → use bezier
       renderSVG();
     };
     const mu=()=>{
@@ -924,15 +875,9 @@ function renderSVG(){
     const y2=tn.y;
     const gap=y2-y1;
 
-    const isTopLevel=(fn.id==='n0'||fn.id==='n1');
-    let d;
-    if(isTopLevel){
-      const mid=Math.round(y1+gap/2);
-      d=`M${x1},${y1} L${x1},${mid} L${x2},${mid} L${x2},${y2}`;
-    }else{
-      const cy=gap*0.5;
-      d=`M${x1},${y1} C${x1},${y1+cy} ${x2},${y2-cy} ${x2},${y2}`;
-    }
+    // Always bezier curve regardless of node type
+    const cy=gap*0.5;
+    const d=`M${x1},${y1} C${x1},${y1+cy} ${x2},${y2-cy} ${x2},${y2}`;
 
     const path=se('path');
     path.setAttribute('d',d);
@@ -940,15 +885,27 @@ function renderSVG(){
     path.setAttribute('stroke','#C0BAE8');
     path.setAttribute('stroke-width','1.3');
     path.setAttribute('marker-end','url(#arr)');
+    // Always make lines selectable (even in view mode for visual feedback)
+    const isSelected = _selConn === c.id;
+    path.setAttribute('stroke', isSelected ? '#534AB7' : '#C0BAE8');
+    path.setAttribute('stroke-width', isSelected ? '2.5' : '1.3');
+    if(isSelected) path.setAttribute('stroke-dasharray', '');
+
     if(editMode){
       path.style.pointerEvents='stroke';
       path.style.cursor='pointer';
-      path.addEventListener('click',e=>{e.stopPropagation();delConn(c.id);});
+      path.addEventListener('click',e=>{
+        e.stopPropagation();
+        if(_selConn===c.id){ _selConn=null; } // deselect
+        else { _selConn=c.id; }
+        renderSVG();
+        updateConnPanel(c.id);
+      });
     }
     svgl.appendChild(path);
 
     if(editMode){
-      const mx=(x1+x2)/2,my=isTopLevel?Math.round(y1+gap/2):(y1+y2)/2;
+      const mx=(x1+x2)/2,my=(y1+y2)/2;
       const fo=document.createElementNS('http://www.w3.org/2000/svg','foreignObject');
       fo.setAttribute('x',mx-7);fo.setAttribute('y',my-7);
       fo.setAttribute('width','14');fo.setAttribute('height','14');
@@ -978,7 +935,11 @@ function handleClick(id){
 }
 
 canvas.addEventListener('click',e=>{
-  if(e.target===canvas||e.target===svgl){selId=null;if(editMode)showPanel(null);render();}
+  if(e.target===canvas||e.target===svgl){
+    selId=null;_selConn=null;
+    if(editMode)showPanel(null);
+    render();
+  }
 });
 
 function toggleConn(force){
@@ -1038,6 +999,33 @@ function showPanel(id){
     <div class="pg" style="margin-top:2px"><button class="pbtn pbtn-conn" onclick="connFrom2('${id}')">+ Connect to node</button></div>
     <div class="pg"><button class="pbtn pbtn-del" onclick="delNode('${id}')">Delete node</button></div>`;
 }
+function updateConnPanel(connId){
+  if(!connId||!editMode)return;
+  const pb=document.getElementById('pb');
+  const isStraight=_straightConns.has(connId);
+  pb.innerHTML=`
+    <div class="pe" style="padding-top:10px"><strong style="font-size:12px">Connection selected</strong></div>
+    <div class="pg">
+      <button class="pbtn" style="background:var(--purple-bg);color:var(--purple-tx);border-color:var(--purple-bd)" onclick="toggleStraight('${connId}')">
+        ${isStraight?'~ Make curved':'— Straighten line'}
+      </button>
+    </div>
+    <div class="pg"><button class="pbtn pbtn-del" onclick="delConnSel('${connId}')">Delete connection</button></div>
+    <div class="pg"><button class="pbtn" style="background:var(--gray-bg);color:var(--gray-tx);border-color:var(--gray-bd)" onclick="_selConn=null;renderSVG();showPanel(null)">Deselect</button></div>`;
+}
+
+function toggleStraight(connId){
+  if(_straightConns.has(connId))_straightConns.delete(connId);
+  else _straightConns.add(connId);
+  renderSVG();
+  updateConnPanel(connId);
+}
+
+function delConnSel(connId){
+  _selConn=null;_straightConns.delete(connId);
+  delConn(connId);showPanel(null);
+}
+
 let _luTimer=null;
 function lu(id,f,v){
   const n=nodes.find(x=>x.id===id);if(!n)return;
@@ -1188,10 +1176,8 @@ window.addEventListener('load',function(){
     var x1=fe.offsetLeft+fe.offsetWidth/2,y1=fe.offsetTop+fe.offsetHeight;
     var x2=te.offsetLeft+te.offsetWidth/2,y2=te.offsetTop;
     var gap=y2-y1;
-    var isTop=(c.from==='n0'||c.from==='n1');
-    var d;
-    if(isTop){var mid=Math.round(y1+gap/2);d='M'+x1+','+y1+' L'+x1+','+mid+' L'+x2+','+mid+' L'+x2+','+y2;}
-    else{var cy1=y1+gap*0.5,cy2=y2-gap*0.5;d='M'+x1+','+y1+' C'+x1+','+cy1+' '+x2+','+cy2+' '+x2+','+y2;}
+    var cy=gap*0.5;
+    var d='M'+x1+','+y1+' C'+x1+','+(y1+cy)+' '+x2+','+(y2-cy)+' '+x2+','+y2;
     var p=document.createElementNS('http://www.w3.org/2000/svg','path');
     p.setAttribute('d',d);
     p.setAttribute('fill','none');p.setAttribute('stroke','#C0BAE8');p.setAttribute('stroke-width','1.3');p.setAttribute('marker-end','url(#a)');
