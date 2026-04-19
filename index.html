@@ -233,11 +233,9 @@ body.view-mode .cdel{display:none}
 <!-- Firebase SDK -->
 <script type="module">
   import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-  import { getDatabase, ref, set, onValue, serverTimestamp }
+  import { getDatabase, ref, set, onValue }
     from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
 
-  // ── PASTE YOUR FIREBASE CONFIG HERE ──
-  // (Replace everything inside firebaseConfig with your own values)
   const firebaseConfig = {
     apiKey:            "AIzaSyBaKXVl3yK3sdhC1roiwTQJSTgjLnrLVDE",
     authDomain:        "mdu-pmo.firebaseapp.com",
@@ -252,38 +250,72 @@ body.view-mode .cdel{display:none}
   const db  = getDatabase(app);
   const chartRef = ref(db, 'mdu_pmo_chart');
 
-  let _suppressRemote = false;  // stop echo when we are the ones saving
+  let _isSaving = false;
   let _saveTimer = null;
+  let _lastSaveTime = 0;
 
-  // ── SAVE to Firebase ──
+  // ── SAVE ──
   window.firebaseSave = function() {
     clearTimeout(_saveTimer);
     _saveTimer = setTimeout(async () => {
-      _suppressRemote = true;
-      await set(chartRef, {
-        nodes: window._nodes,
-        conns: window._conns,
-        nid:   window._nid,
-        updatedAt: Date.now()
-      });
-      showSyncStatus('saved');
-      setTimeout(() => { _suppressRemote = false; }, 1500);
-    }, 800); // debounce — save 800 ms after last change
+      _isSaving = true;
+      _lastSaveTime = Date.now();
+      try {
+        await set(chartRef, {
+          nodes: JSON.parse(JSON.stringify(window._nodes || [])),
+          conns: JSON.parse(JSON.stringify(window._conns || [])),
+          nid:   window._nid || 0,
+          savedAt: _lastSaveTime
+        });
+        showSyncStatus('saved');
+        console.log('[Firebase] Saved OK');
+      } catch(e) {
+        console.error('[Firebase] Save failed:', e);
+        showSyncStatus('error');
+      }
+      setTimeout(() => { _isSaving = false; }, 2000);
+    }, 1000);
   };
 
-  // ── LISTEN for remote changes ──
+  // ── LISTEN ──
+  // onValue fires immediately with current data AND on every future change
+  let _firstLoad = true;
   onValue(chartRef, (snap) => {
-    if (_suppressRemote) return;
     const data = snap.val();
-    if (!data) return;
-    // Someone else changed the chart — reload into editor
-    window._nodes = data.nodes || [];
-    window._conns = data.conns || [];
-    window._nid   = data.nid   || 0;
-    if (typeof window.renderFromFirebase === 'function') {
-      window.renderFromFirebase();
+    console.log('[Firebase] onValue fired, isSaving:', _isSaving, 'data:', !!data);
+
+    if (!data) {
+      console.log('[Firebase] No data yet in database');
+      _firstLoad = false;
+      return;
     }
-    showSyncStatus('received');
+
+    // Skip if this is our own save echoing back (within 2s)
+    if (_isSaving) {
+      console.log('[Firebase] Skipping echo from our own save');
+      _firstLoad = false;
+      return;
+    }
+
+    // On first load always apply (loads saved state on page open)
+    // On subsequent fires only apply if savedAt is newer than our last save
+    const isNewer = !_lastSaveTime || (data.savedAt && data.savedAt > _lastSaveTime);
+    if (_firstLoad || isNewer) {
+      console.log('[Firebase] Applying remote data');
+      // Push into global vars that render() reads
+      window._nodes = data.nodes || [];
+      window._conns = data.conns || [];
+      window._nid   = data.nid   || 0;
+      // Apply to local JS variables via callback
+      if (typeof window.applyFirebaseData === 'function') {
+        window.applyFirebaseData(data.nodes || [], data.conns || [], data.nid || 0);
+      }
+      if (!_firstLoad) showSyncStatus('received');
+    }
+    _firstLoad = false;
+  }, (error) => {
+    console.error('[Firebase] Listen error:', error);
+    showSyncStatus('error');
   });
 
   function showSyncStatus(type) {
@@ -292,13 +324,16 @@ body.view-mode .cdel{display:none}
     if (type === 'saved') {
       el.textContent = '✓ Saved to cloud';
       el.style.color = '#0A6648';
-    } else {
-      el.textContent = '↓ Chart updated by another user';
+    } else if (type === 'received') {
+      el.textContent = '↓ Updated by another user';
       el.style.color = '#534AB7';
+    } else {
+      el.textContent = '⚠ Sync error — check console';
+      el.style.color = '#A32D2D';
     }
     el.style.opacity = '1';
     clearTimeout(el._t);
-    el._t = setTimeout(() => { el.style.opacity = '0'; }, 3000);
+    el._t = setTimeout(() => { el.style.opacity = '0'; }, 4000);
   }
 </script>
 </head>
@@ -619,11 +654,22 @@ function autoAlign(){
 /* ══ RENDER ══ */
 function render(){renderNodes();renderSVG();updateSt();}
 
-// Called by Firebase listener when remote data arrives
-window.renderFromFirebase = function(){
-  _pauseHistory=true;
+// Called by Firebase listener — updates local state then re-renders
+window.applyFirebaseData = function(fbNodes, fbConns, fbNid){
+  _pauseHistory = true;
+  nodes = fbNodes.map(n => ({...n}));
+  conns = fbConns.map(c => ({...c}));
+  nid   = Math.max(nid, fbNid);
+  selId = null;
   render();
-  _pauseHistory=false;
+  showPanel(null);
+  _pauseHistory = false;
+  console.log('[Firebase] Applied', nodes.length, 'nodes,', conns.length, 'conns');
+};
+
+// Legacy alias
+window.renderFromFirebase = function(){
+  if(window._nodes) window.applyFirebaseData(window._nodes, window._conns||[], window._nid||0);
 };
 
 function renderNodes(){
