@@ -237,9 +237,21 @@ body.view-mode .cdel{display:none}
     <div id="pw-lock">&#128274;</div>
     <h2>MDU PMO Team</h2>
     <p>This chart is password protected.<br>Enter the password to continue.</p>
-    <input type="password" id="pw-input" placeholder="Enter password" 
-      onkeydown="if(event.key==='Enter')checkPW()" autocomplete="off"/>
-    <button id="pw-btn" onclick="checkPW()">Unlock</button>
+    <div style="position:relative;margin-bottom:0">
+      <input type="password" id="pw-input" placeholder="Enter password"
+        onkeydown="if(event.key==='Enter')checkPW(); checkCaps(event);"
+        onkeyup="checkCaps(event)"
+        onfocus="checkCaps(event)"
+        autocomplete="off"
+        style="padding-right:40px"/>
+      <span id="pw-eye" onclick="togglePWVisible()"
+        style="position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:16px;color:#A8A59E;user-select:none"
+        title="Show/hide password">&#128065;</span>
+    </div>
+    <div id="pw-caps" style="display:none;font-size:12px;font-weight:500;color:#854F0B;background:#FAEEDA;border:1px solid #EF9F27;border-radius:6px;padding:7px 12px;margin-top:8px;text-align:center">
+      &#9650; Caps Lock is ON — this may affect your password
+    </div>
+    <button id="pw-btn" onclick="checkPW()" style="margin-top:12px">Unlock</button>
     <div id="pw-error"></div>
   </div>
 </div>
@@ -987,6 +999,34 @@ const PW_HASH = '3638f237f7a5d2a5e16bb8982e4b9b6d607a71df3e23296043570c79db3f88a
 async function hashStr(str){
   const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(str));
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+function checkCaps(e){
+  if(!e || !e.getModifierState) return;
+  const caps = e.getModifierState('CapsLock');
+  const el = document.getElementById('pw-caps');
+  el.style.display = caps ? 'block' : 'none';
+}
+
+
+
+function checkCapsOnFocus(){
+  /* Cannot read CapsLock without a KeyboardEvent — hide the warning on focus */
+  document.getElementById('pw-caps').style.display='none';
+}
+
+function togglePWVisible(){
+  const inp = document.getElementById('pw-input');
+  const eye = document.getElementById('pw-eye');
+  if(inp.type === 'password'){
+    inp.type = 'text';
+    eye.innerHTML = '&#128064;';
+    eye.title = 'Hide password';
+  } else {
+    inp.type = 'password';
+    eye.innerHTML = '&#128065;';
+    eye.title = 'Show password';
+  }
 }
 
 async function checkPW(){
