@@ -1,0 +1,1036 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>MDU PMO Team — Chart Editor</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --purple-bg:#EEEDFE;--purple-bd:#7B72D9;--purple-tx:#3B3391;
+  --teal-bg:#E0F7EF;--teal-bd:#2EAE82;--teal-tx:#0A6648;
+  --coral-bg:#FDF0EB;--coral-bd:#E07050;--coral-tx:#7A2E14;
+  --gray-bg:#F4F2EE;--gray-bd:#B0ADA6;--gray-tx:#4A4845;
+  --violet-bg:#EEEEFF;--violet-bd:#8B84E0;--violet-tx:#3A3390;
+  --accent:#534AB7;
+  --border:#E2E0D8;--border-strong:#C8C5BC;
+  --text:#1A1917;--muted:#706E68;--hint:#A8A59E;
+  --danger-bg:#FEF0F0;--danger-bd:#E07070;--danger-tx:#8A2020;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{font-family:'DM Sans',sans-serif;background:#F5F4F0;color:var(--text);display:flex;flex-direction:column}
+
+/* ── MODE BANNER ── */
+#mode-banner{
+  display:flex;align-items:center;justify-content:center;gap:10px;
+  height:30px;font-size:12px;font-weight:500;flex-shrink:0;
+}
+#mode-banner.view{background:#EDF7F2;color:#0A6648;border-bottom:1px solid #C0E8D4}
+#mode-banner.edit{background:#EEEDFE;color:#3B3391;border-bottom:1px solid #C8C4F0}
+.mode-dot{width:7px;height:7px;border-radius:50%}
+#mode-banner.view .mode-dot{background:#2EAE82}
+#mode-banner.edit .mode-dot{background:#7B72D9}
+#mode-toggle{
+  padding:2px 12px;border-radius:20px;border:1.5px solid;font-size:11px;font-weight:600;
+  cursor:pointer;font-family:'DM Sans',sans-serif;
+}
+#mode-banner.view #mode-toggle{background:#2EAE82;color:#fff;border-color:#2EAE82}
+#mode-banner.edit #mode-toggle{background:#534AB7;color:#fff;border-color:#534AB7}
+
+/* ── TOOLBAR ── */
+#toolbar{
+  height:46px;display:flex;align-items:center;gap:5px;padding:0 14px;
+  background:#fff;border-bottom:1px solid var(--border);flex-shrink:0;overflow-x:auto;
+}
+#toolbar.locked{opacity:.3;pointer-events:none;user-select:none}
+.tb-sep{width:1px;height:22px;background:var(--border);margin:0 4px;flex-shrink:0}
+.tb-label{font-size:11px;color:var(--hint);white-space:nowrap;flex-shrink:0}
+.tb-btn{
+  padding:4px 10px;border-radius:6px;border:1px solid var(--border-strong);
+  background:#F5F4F0;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;
+  cursor:pointer;white-space:nowrap;flex-shrink:0;font-weight:500;transition:all .1s;
+}
+.tb-btn:hover{background:#EEECEA}
+.tb-btn.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.tb-btn.del{background:var(--danger-bg);color:var(--danger-tx);border-color:var(--danger-bd)}
+.tb-btn.exp{background:var(--purple-bg);color:var(--purple-tx);border-color:var(--purple-bd)}
+.swatch{width:20px;height:20px;border-radius:4px;border:1.5px solid transparent;cursor:pointer;flex-shrink:0;transition:transform .1s}
+.swatch:hover{transform:scale(1.2)}
+.swatch.active{outline:2px solid var(--accent);outline-offset:2px}
+.title-tb{
+  font-family:'DM Serif Display',serif;font-size:14px;border:none;background:transparent;
+  color:var(--text);outline:none;min-width:140px;text-align:center;
+}
+.title-tb:focus{border-bottom:1px solid var(--accent)}
+
+/* ── MAIN ── */
+#main{display:flex;flex:1;min-height:0;overflow:hidden}
+
+/* ── SCROLL AREA — both axes ── */
+#scroll-area{
+  flex:1;
+  overflow:scroll;
+  background:#F5F4F0;
+  scrollbar-width:thin;
+  scrollbar-color:#C4C0B8 #E8E6E0;
+}
+#scroll-area::-webkit-scrollbar{height:8px;width:8px}
+#scroll-area::-webkit-scrollbar-track{background:#E8E6E0}
+#scroll-area::-webkit-scrollbar-thumb{background:#C4C0B8;border-radius:4px}
+
+/* ── PAGE — white, very wide for room to add nodes ── */
+#page{
+  background:#fff;
+  width:2600px;
+  min-height:calc(100vh - 140px);
+  padding:56px 100px 120px;
+  position:relative;
+}
+
+/* ── CHART HEADER (static, inside page) ── */
+#chart-header{
+  text-align:center;margin-bottom:28px;pointer-events:none;
+  width:100%;
+  position:sticky;left:0;
+}
+#chart-header h1{font-family:'DM Serif Display',serif;font-size:30px;font-weight:400;color:#1A1917;margin-bottom:5px}
+#chart-header p{font-size:12px;color:var(--muted);font-weight:300}
+#chart-legend{
+  display:flex;justify-content:center;gap:18px;margin-bottom:36px;
+  flex-wrap:wrap;pointer-events:none;width:100%;
+  position:sticky;left:0;
+}
+.leg{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted)}
+.leg-dot{width:9px;height:9px;border-radius:2px;border:1px solid}
+
+/* ── CANVAS (relative container for nodes+SVG) ── */
+#canvas{
+  position:relative;
+  min-height:800px;
+  width:100%;
+  overflow:visible;
+}
+#svg-layer{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:1}
+
+/* ── NODES ── */
+.node{
+  position:absolute;border-radius:10px;border:1.5px solid;
+  padding:9px 13px;user-select:none;text-align:center;
+  min-width:110px;max-width:170px;
+  transition:box-shadow .15s;
+  z-index:2;
+}
+body.view-mode .node{cursor:default}
+body.edit-mode .node{cursor:grab}
+body.edit-mode .node:active{cursor:grabbing}
+body.edit-mode .node:hover .node-del{opacity:1}
+.node.sel{box-shadow:0 0 0 2.5px var(--accent);z-index:20}
+.node.conn-hover{cursor:crosshair !important;box-shadow:0 0 0 2.5px #2EAE82}
+.node-name{font-size:12px;font-weight:600;line-height:1.35;pointer-events:none}
+.node-sub{font-size:11px;font-weight:300;opacity:.72;margin-top:2px;pointer-events:none}
+.node-section{font-size:9px;font-weight:600;letter-spacing:.7px;text-transform:uppercase;opacity:.5;margin-top:7px;pointer-events:none}
+.node-items{font-size:11px;line-height:1.65;margin-top:2px;pointer-events:none}
+.node-del{
+  position:absolute;top:-8px;right:-8px;width:18px;height:18px;
+  background:#fff;border:1px solid var(--danger-bd);color:var(--danger-tx);
+  border-radius:50%;cursor:pointer;opacity:0;transition:opacity .12s;z-index:30;
+  display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;
+}
+.node-del:hover{background:var(--danger-bg)}
+.t-purple{background:var(--purple-bg);border-color:var(--purple-bd);color:var(--purple-tx)}
+.t-teal  {background:var(--teal-bg);  border-color:var(--teal-bd);  color:var(--teal-tx)}
+.t-coral {background:var(--coral-bg); border-color:var(--coral-bd); color:var(--coral-tx)}
+.t-gray  {background:var(--gray-bg);  border-color:var(--gray-bd);  color:var(--gray-tx)}
+.t-violet{background:var(--violet-bg);border-color:var(--violet-bd);color:var(--violet-tx)}
+
+/* ── SIDE PANEL ── */
+#panel{
+  width:230px;background:#fff;border-left:1px solid var(--border);
+  display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto;
+}
+body.view-mode #panel{display:none}
+#ph{padding:12px 14px 8px;border-bottom:1px solid var(--border);font-size:12px;font-weight:600}
+#pb{padding:10px 12px;display:flex;flex-direction:column;gap:9px}
+.pg{display:flex;flex-direction:column;gap:3px}
+.pl{font-size:11px;color:var(--muted);font-weight:500}
+.pi,.pta{border:1px solid var(--border-strong);border-radius:6px;padding:5px 8px;font-size:12px;background:#F5F4F0;color:var(--text);font-family:'DM Sans',sans-serif;width:100%}
+.pta{height:66px;resize:vertical}
+.pi:focus,.pta:focus{outline:none;border-color:var(--accent)}
+.ph{font-size:10px;color:var(--hint);line-height:1.5}
+.pc{display:flex;gap:4px;flex-wrap:wrap}
+.ps{width:22px;height:22px;border-radius:5px;border:1.5px solid transparent;cursor:pointer;transition:transform .1s}
+.ps:hover{transform:scale(1.15)}
+.ps.active{outline:2px solid var(--accent);outline-offset:2px}
+.pbtn{padding:6px 10px;border-radius:6px;border:1px solid;font-size:11px;font-family:'DM Sans',sans-serif;cursor:pointer;font-weight:500;width:100%;transition:all .1s}
+.pbtn-del{background:var(--danger-bg);color:var(--danger-tx);border-color:var(--danger-bd)}
+.pbtn-conn{background:var(--teal-bg);color:var(--teal-tx);border-color:var(--teal-bd)}
+.pe{padding:16px 12px;font-size:11px;color:var(--hint);line-height:1.7}
+
+/* conn del btn */
+.cdel{
+  position:absolute;background:#fff;border:1px solid var(--danger-bd);
+  color:var(--danger-tx);border-radius:50%;width:15px;height:15px;
+  font-size:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  font-weight:700;transform:translate(-50%,-50%);
+}
+.cdel:hover{background:var(--danger-bg)}
+body.view-mode .cdel{display:none}
+
+/* ── MODAL ── */
+#mw{display:none;position:fixed;inset:0;background:rgba(0,0,0,.2);z-index:300;align-items:center;justify-content:center}
+#mw.open{display:flex}
+#mo{background:#fff;border-radius:12px;border:1px solid var(--border);padding:22px;width:310px}
+#mo h3{font-size:14px;font-weight:600;margin-bottom:12px}
+#mo label{font-size:11px;color:var(--muted);display:block;margin:8px 0 2px;font-weight:500}
+#mo input,#mo textarea{width:100%;border:1px solid var(--border-strong);border-radius:6px;padding:6px 9px;font-size:12px;background:#F5F4F0;color:var(--text);font-family:'DM Sans',sans-serif}
+#mo textarea{height:72px;resize:vertical}
+.mbtns{display:flex;gap:7px;justify-content:flex-end;margin-top:12px}
+.mbtns button{padding:6px 14px;border-radius:6px;border:1px solid var(--border-strong);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:500;background:#F5F4F0;color:var(--text)}
+.mbtns .msave{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+/* ── STATUSBAR ── */
+#sb{height:24px;background:#fff;border-top:1px solid var(--border);display:flex;align-items:center;padding:0 12px;gap:14px;flex-shrink:0}
+.sp{font-size:10px;color:var(--hint);display:flex;align-items:center;gap:4px}
+.sd{width:5px;height:5px;border-radius:50%}
+
+/* ── PASSWORD SCREEN ── */
+#pw-screen{
+  position:fixed;inset:0;z-index:9999;
+  background:linear-gradient(135deg,#EDE9F8 0%,#E8F4F0 100%);
+  display:flex;align-items:center;justify-content:center;
+}
+#pw-box{
+  background:#fff;border-radius:16px;padding:40px 36px;
+  border:1px solid rgba(180,175,220,0.4);
+  box-shadow:0 4px 32px rgba(83,74,183,0.10);
+  width:340px;text-align:center;
+}
+#pw-box h2{
+  font-family:'DM Serif Display',serif;font-size:24px;font-weight:400;
+  color:#1A1917;margin-bottom:6px;
+}
+#pw-box p{font-size:13px;color:#706E68;margin-bottom:24px;line-height:1.5}
+#pw-input{
+  width:100%;padding:10px 14px;border-radius:8px;
+  border:1.5px solid #C8C5BC;font-size:14px;font-family:'DM Sans',sans-serif;
+  background:#F7F6F3;color:#1A1917;outline:none;text-align:center;
+  letter-spacing:2px;margin-bottom:12px;transition:border-color .15s;
+}
+#pw-input:focus{border-color:#7B72D9}
+#pw-input.wrong{border-color:#E07070;animation:shake .3s ease}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+#pw-btn{
+  width:100%;padding:10px;border-radius:8px;border:none;
+  background:#534AB7;color:#fff;font-size:14px;font-weight:600;
+  font-family:'DM Sans',sans-serif;cursor:pointer;transition:background .15s;
+}
+#pw-btn:hover{background:#443DA0}
+#pw-error{font-size:12px;color:#A32D2D;margin-top:8px;min-height:16px}
+#pw-lock{font-size:32px;margin-bottom:16px}
+</style>
+</head>
+<body class="view-mode">
+<!-- PASSWORD SCREEN -->
+<div id="pw-screen">
+  <div id="pw-box">
+    <div id="pw-lock">&#128274;</div>
+    <h2>MDU PMO Team</h2>
+    <p>This chart is password protected.<br>Enter the password to continue.</p>
+    <input type="password" id="pw-input" placeholder="Enter password" 
+      onkeydown="if(event.key==='Enter')checkPW()" autocomplete="off"/>
+    <button id="pw-btn" onclick="checkPW()">Unlock</button>
+    <div id="pw-error"></div>
+  </div>
+</div>
+
+
+
+<!-- MODE BANNER -->
+<div id="mode-banner" class="view">
+  <span class="mode-dot"></span>
+  <span id="mlabel">View mode — chart is locked</span>
+  <button id="mode-toggle" onclick="toggleMode()">Switch to Edit</button>
+</div>
+
+<!-- TOOLBAR -->
+<div id="toolbar" class="locked">
+  <input class="title-tb" id="chart-title" value="MDU PMO Team"/>
+  <div class="tb-sep"></div>
+  <span class="tb-label">Add</span>
+  <button class="tb-btn" onclick="addNode('person')">+ Person</button>
+  <button class="tb-btn" onclick="addNode('task')">+ Task box</button>
+  <div class="tb-sep"></div>
+  <span class="tb-label">Color</span>
+  <div class="swatch active" style="background:#EEEDFE;border-color:#7B72D9" data-t="t-purple" onclick="setSwatch(this)"></div>
+  <div class="swatch" style="background:#E0F7EF;border-color:#2EAE82" data-t="t-teal" onclick="setSwatch(this)"></div>
+  <div class="swatch" style="background:#FDF0EB;border-color:#E07050" data-t="t-coral" onclick="setSwatch(this)"></div>
+  <div class="swatch" style="background:#F4F2EE;border-color:#B0ADA6" data-t="t-gray" onclick="setSwatch(this)"></div>
+  <div class="swatch" style="background:#EEEEFF;border-color:#8B84E0" data-t="t-violet" onclick="setSwatch(this)"></div>
+  <div class="tb-sep"></div>
+  <button class="tb-btn" id="btn-conn" onclick="toggleConn()">&#9675; Connect</button>
+  <button class="tb-btn" onclick="autoAlign()">&#8803; Auto-align</button>
+  <button class="tb-btn" id="btn-undo" onclick="undo()" title="Undo (Ctrl+Z)" style="opacity:.35">&#8630; Undo</button>
+  <button class="tb-btn" id="btn-redo" onclick="redo()" title="Redo (Ctrl+Y)" style="opacity:.35">&#8631; Redo</button>
+  <button class="tb-btn del" onclick="delSel()">&#10005; Delete</button>
+  <div class="tb-sep"></div>
+  <button class="tb-btn exp" onclick="doExport()">&#8595; Export HTML</button>
+  <button class="tb-btn exp" onclick="window.print()">Print / PDF</button>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+  <div id="scroll-area">
+    <div id="page">
+      <!-- Static header -->
+      <div id="chart-header">
+        <h1 id="display-title">MDU PMO Team</h1>
+        <p>Team structure &amp; task assignments — April 2026</p>
+      </div>
+      <div id="chart-legend">
+        <span class="leg"><span class="leg-dot" style="background:var(--purple-bg);border-color:var(--purple-bd)"></span>Leadership</span>
+        <span class="leg"><span class="leg-dot" style="background:var(--teal-bg);border-color:var(--teal-bd)"></span>SG Onshore</span>
+        <span class="leg"><span class="leg-dot" style="background:var(--coral-bg);border-color:var(--coral-bd)"></span>India Offshore</span>
+        <span class="leg"><span class="leg-dot" style="background:var(--teal-bg);border-color:var(--teal-bd)"></span>Main tasks</span>
+        <span class="leg"><span class="leg-dot" style="background:var(--violet-bg);border-color:var(--violet-bd)"></span>Coding tasks</span>
+        <span class="leg"><span class="leg-dot" style="background:var(--gray-bg);border-color:var(--gray-bd)"></span>Non-coding</span>
+      </div>
+      <!-- Canvas -->
+      <div id="canvas">
+        <svg id="svg-layer"></svg>
+      </div>
+      <!-- Export buttons (view mode only) -->
+      <div id="view-btns" style="display:flex;justify-content:center;gap:12px;margin-top:40px;position:sticky;left:0">
+        <button onclick="window.print()" style="padding:8px 20px;border-radius:20px;border:1px solid var(--purple-bd);background:var(--purple-bg);color:var(--purple-tx);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer">Print / Save as PDF</button>
+        <button onclick="showCanvaTip()" style="padding:8px 20px;border-radius:20px;border:1px solid var(--border-strong);background:#F5F4F0;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer">How to import to Canva</button>
+      </div>
+      <div id="canva-tip" style="display:none;max-width:480px;margin:16px auto 0;background:var(--purple-bg);border:1px solid var(--purple-bd);border-radius:10px;padding:14px 18px;font-size:12px;color:var(--purple-tx);line-height:1.7">
+        <strong>To import to Canva:</strong><br>
+        1. Click <em>Print / Save as PDF</em> and save as PDF.<br>
+        2. In Canva → <strong>Uploads → Upload files</strong> → upload the PDF.<br>
+        3. Drag onto your canvas. Canva renders it as a high-quality image.
+      </div>
+    </div>
+  </div>
+
+  <!-- SIDE PANEL -->
+  <div id="panel">
+    <div id="ph">Properties</div>
+    <div id="pb"><div class="pe">Select a node to edit.<br><br>Double-click for full editor.<br>Use <strong>Auto-align</strong> to tidy layout.</div></div>
+  </div>
+</div>
+
+<!-- STATUS BAR -->
+<div id="sb">
+  <span class="sp"><span class="sd" style="background:#2EAE82"></span><span id="sn">0 nodes</span></span>
+  <span class="sp"><span class="sd" style="background:#7B72D9"></span><span id="sc">0 conns</span></span>
+  <span class="sp" style="margin-left:auto;font-weight:500;color:var(--muted)" id="smode">View mode</span>
+  <span class="sp" style="font-size:10px;color:var(--hint)">Scroll left/right to pan &nbsp;·&nbsp; Shift+scroll = horizontal</span>
+</div>
+
+<!-- MODAL -->
+<div id="mw">
+  <div id="mo">
+    <h3 id="mtitle">Edit node</h3>
+    <label>Name</label><input id="mn" type="text"/>
+    <label>Subtitle / role</label><input id="ms" type="text"/>
+    <label>Section label (e.g. Main tasks, Coding)</label><input id="msc" type="text"/>
+    <label>Items — one per line</label><textarea id="mi"></textarea>
+    <div class="mbtns">
+      <button onclick="closeM()">Cancel</button>
+      <button class="msave" onclick="saveM()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ══ STATE ══ */
+let nodes=[],conns=[],selId=null,connMode=false,connFrom=null,modalId=null,editMode=false;
+let activeSw=document.querySelector('.swatch.active'),activeTheme='t-purple',nid=0;
+let history=[],histIdx=-1,_pauseHistory=false;
+
+function snapshot(){
+  if(_pauseHistory)return;
+  const s=JSON.stringify({nodes:nodes.map(n=>({...n})),conns:conns.map(c=>({...c})),nid});
+  if(histIdx<history.length-1) history=history.slice(0,histIdx+1);
+  history.push(s);
+  if(history.length>60)history.shift();
+  histIdx=history.length-1;
+  updateUndoUI();
+}
+
+function undo(){
+  if(histIdx<=0)return;
+  histIdx--;
+  restoreSnap(history[histIdx]);
+  updateUndoUI();
+}
+
+function redo(){
+  if(histIdx>=history.length-1)return;
+  histIdx++;
+  restoreSnap(history[histIdx]);
+  updateUndoUI();
+}
+
+function restoreSnap(s){
+  _pauseHistory=true;
+  const d=JSON.parse(s);
+  nodes=d.nodes;conns=d.conns;nid=d.nid;
+  selId=null;showPanel(null);
+  _pauseHistory=false;
+  render();
+}
+
+function updateUndoUI(){
+  const u=document.getElementById('btn-undo');
+  const r=document.getElementById('btn-redo');
+  if(u)u.style.opacity=histIdx>0?'1':'0.35';
+  if(r)r.style.opacity=histIdx<history.length-1?'1':'0.35';
+}
+const canvas=document.getElementById('canvas');
+const svgl=document.getElementById('svg-layer');
+
+/* ══ DATA ══ */
+const initNodes=[
+  {id:'n0', theme:'t-purple',x:0,y:0,name:'Angeline Lin',     sub:'Engagement Delivery Partner',section:'',items:''},
+  {id:'n1', theme:'t-purple',x:0,y:0,name:'Michael Ching',    sub:'EPL',                        section:'',items:''},
+  {id:'n2', theme:'t-teal',  x:0,y:0,name:'Toh Yee Bien',     sub:'SG (Onshore)',               section:'',items:''},
+  {id:'n3', theme:'t-teal',  x:0,y:0,name:'Sharon Mui',       sub:'SG (Onshore)',               section:'',items:''},
+  {id:'n4', theme:'t-coral', x:0,y:0,name:'Pagadala Supraja', sub:'India (Offshore)',            section:'',items:''},
+  {id:'n5', theme:'t-coral', x:0,y:0,name:'M. Ezhilarasi',    sub:'India (Offshore)',            section:'',items:''},
+  {id:'n6', theme:'t-coral', x:0,y:0,name:'Bharati S. Jeevan',sub:'India (Offshore)',            section:'',items:''},
+  {id:'n7', theme:'t-teal',  x:0,y:0,name:'Rian Chiang',      sub:'SG (Onshore)',               section:'',items:''},
+  {id:'n8', theme:'t-teal',  x:0,y:0,name:'Lim Li Sheng',     sub:'SG (Onshore)',               section:'',items:''},
+  {id:'n9', theme:'t-teal',  x:0,y:0,name:'Chloe Ang',        sub:'SG (Onshore)',               section:'',items:''},
+  {id:'n10',theme:'t-teal',  x:0,y:0,name:'Main tasks',  sub:'',section:'Main tasks',  items:'SO RR\nOnboarding\nOffboarding'},
+  {id:'n11',theme:'t-violet',x:0,y:0,name:'Coding',      sub:'',section:'Coding',      items:'PDF to Excel\nTimesheet chaser\nNHB leave data'},
+  {id:'n12',theme:'t-gray',  x:0,y:0,name:'Non-coding',  sub:'',section:'Non-coding',  items:'Workflow seed\nMDU chart\nBlueBOT KPI'},
+  {id:'n13',theme:'t-teal',  x:0,y:0,name:'Main tasks',  sub:'',section:'Main tasks',  items:'AR UBR'},
+  {id:'n14',theme:'t-violet',x:0,y:0,name:'Coding',      sub:'',section:'Coding',      items:'AR macro\nAR UBR dashboard'},
+  {id:'n15',theme:'t-gray',  x:0,y:0,name:'Non-coding',  sub:'',section:'Non-coding',  items:'POC list'},
+  {id:'n16',theme:'t-teal',  x:0,y:0,name:'Main tasks',  sub:'',section:'Main tasks',  items:'PO updates\nTimesheet & timelog\nWorkpal timelog\nQuickbuy timelog\nNHB timesheets'},
+  {id:'n17',theme:'t-gray',  x:0,y:0,name:'Other tasks', sub:'',section:'Other tasks', items:'Billing workflow\nAssociate list'},
+  {id:'n18',theme:'t-violet',x:0,y:0,name:'Coding',      sub:'',section:'Coding',      items:'NHB leave data'},
+];
+const initConns=[
+  ['n0','n1'],
+  ['n1','n2'],['n1','n3'],['n1','n4'],['n1','n5'],['n1','n6'],['n1','n7'],['n1','n8'],['n1','n9'],
+  ['n7','n10'],['n10','n11'],['n11','n12'],
+  ['n8','n13'],['n13','n14'],['n14','n15'],
+  ['n9','n16'],['n16','n17'],['n17','n18'],
+];
+nodes=initNodes.map(n=>({...n}));
+conns=initConns.map(([a,b],i)=>({id:'c'+i,from:a,to:b}));
+nid=20;
+
+/* ══ MODE ══ */
+function toggleMode(){
+  editMode=!editMode;
+  document.body.className=editMode?'edit-mode':'view-mode';
+  const b=document.getElementById('mode-banner');
+  b.className=editMode?'edit':'view';
+  document.getElementById('mlabel').textContent=editMode?'Edit mode — changes are live':'View mode — chart is locked';
+  document.getElementById('mode-toggle').textContent=editMode?'Switch to View':'Switch to Edit';
+  document.getElementById('toolbar').classList.toggle('locked',!editMode);
+  document.getElementById('smode').textContent=editMode?'Edit mode':'View mode';
+  document.getElementById('view-btns').style.display=editMode?'none':'flex';
+  if(!editMode){selId=null;if(connMode)toggleConn(false);render();}
+}
+
+/* ══ AUTO-ALIGN ══ */
+function autoAlign(){
+  render();
+  const childMap={},parentMap={};
+  nodes.forEach(n=>{childMap[n.id]=[];parentMap[n.id]=[];});
+  conns.forEach(c=>{if(childMap[c.from])childMap[c.from].push(c.to);if(parentMap[c.to])parentMap[c.to].push(c.from);});
+
+  const roots=nodes.filter(n=>parentMap[n.id].length===0).map(n=>n.id);
+  const level={};
+  roots.forEach(r=>level[r]=0);
+  const q=[...roots],vis=new Set(roots);
+  while(q.length){
+    const cur=q.shift();
+    (childMap[cur]||[]).forEach(ch=>{if(!vis.has(ch)){vis.add(ch);level[ch]=(level[cur]||0)+1;q.push(ch);}});
+  }
+  nodes.forEach(n=>{if(level[n.id]===undefined)level[n.id]=0;});
+
+  const maxLv=Math.max(...Object.values(level));
+  const byLv={};
+  for(let l=0;l<=maxLv;l++) byLv[l]=[];
+  nodes.forEach(n=>byLv[level[n.id]].push(n.id));
+
+  const nodeW=138, hGap=22, vGap=52;
+
+  function getH(id){const el=document.getElementById(id);return el?el.offsetHeight:58;}
+
+  // Compute Y per level
+  const levelY={};let curY=0;
+  for(let l=0;l<=maxLv;l++){
+    levelY[l]=curY;
+    const mh=Math.max(...byLv[l].map(id=>getH(id)));
+    curY+=mh+vGap;
+  }
+
+  // Center each level. Store target centre-x, then convert to left-x after render.
+  const canvasW=2400;
+  // First pass: assign centre-x to each node
+  const centreX={};
+  for(let l=0;l<=maxLv;l++){
+    const ids=byLv[l];
+    const rowW=ids.length*(nodeW+hGap)-hGap;
+    const startCx=Math.max(nodeW/2,Math.round((canvasW-rowW)/2)+nodeW/2);
+    ids.forEach((id,i)=>{
+      centreX[id]=startCx+i*(nodeW+hGap);
+      const n=nodes.find(x=>x.id===id);
+      if(n) n.y=Math.round(levelY[l]);
+    });
+  }
+  // Second pass: convert centre-x to left-x using actual rendered width
+  Object.entries(centreX).forEach(([id,cx])=>{
+    const n=nodes.find(x=>x.id===id);
+    const el=document.getElementById(id);
+    const w=el?el.offsetWidth:nodeW;
+    if(n) n.x=Math.round(cx-w/2);
+  });
+
+  const lh=Math.max(...byLv[maxLv].map(id=>getH(id)));
+  canvas.style.minHeight=(levelY[maxLv]+lh+60)+'px';
+  render();
+}
+
+/* ══ RENDER ══ */
+function render(){renderNodes();renderSVG();updateSt();}
+
+function renderNodes(){
+  const ex={};
+  canvas.querySelectorAll('.node').forEach(el=>ex[el.id]=el);
+  nodes.forEach(n=>{
+    let el=ex[n.id];
+    if(!el){
+      el=document.createElement('div');el.id=n.id;canvas.appendChild(el);
+      makeDrag(el,n);
+      el.addEventListener('dblclick',e=>{if(editMode){e.stopPropagation();openM(n.id);}});
+      el.addEventListener('click',e=>{e.stopPropagation();if(editMode)handleClick(n.id);});
+    }
+    delete ex[n.id];
+    el.className='node '+n.theme+(selId===n.id?' sel':'')+(connMode?' conn-hover':'');
+    el.style.left=n.x+'px';el.style.top=n.y+'px';
+
+    let h='';
+    if(editMode) h+=`<div class="node-del" onclick="event.stopPropagation();delNode('${n.id}')">&#10005;</div>`;
+    h+=`<div class="node-name">${esc(n.name)}</div>`;
+    if(n.sub)     h+=`<div class="node-sub">${esc(n.sub)}</div>`;
+    if(n.section) h+=`<div class="node-section">${esc(n.section)}</div>`;
+    if(n.items){
+      const lines=n.items.split('\n').filter(s=>s.trim());
+      if(lines.length) h+=`<div class="node-items">${lines.map(l=>'&bull; '+esc(l.trim())).join('<br>')}</div>`;
+    }
+    el.innerHTML=h;
+    if(editMode) el.querySelector('.node-del').addEventListener('click',e=>{e.stopPropagation();delNode(n.id);});
+  });
+  Object.values(ex).forEach(el=>el.remove());
+}
+
+function renderSVG(){
+  // Dynamically size SVG to cover full canvas including any out-of-bounds nodes
+  const maxX=Math.max(2400,...nodes.map(n=>{const el=document.getElementById(n.id);return el?n.x+el.offsetWidth+40:n.x+220;}));
+  const maxY=Math.max(800,...nodes.map(n=>{const el=document.getElementById(n.id);return el?n.y+el.offsetHeight+40:n.y+100;}));
+  svgl.setAttribute('width',maxX);
+  svgl.setAttribute('height',maxY);
+  canvas.style.minWidth=maxX+'px';
+  canvas.style.minHeight=maxY+'px';
+  svgl.innerHTML='';
+  // Arrow marker
+  const defs=se('defs');
+  const mk=se('marker');
+  mk.setAttribute('id','arr');mk.setAttribute('viewBox','0 0 10 10');
+  mk.setAttribute('refX','8');mk.setAttribute('refY','5');
+  mk.setAttribute('markerWidth','6');mk.setAttribute('markerHeight','6');
+  mk.setAttribute('orient','auto-start-reverse');
+  const mkp=se('path');
+  mkp.setAttribute('d','M2 2L8 5L2 8');mkp.setAttribute('fill','none');
+  mkp.setAttribute('stroke','#9490C8');mkp.setAttribute('stroke-width','1.3');mkp.setAttribute('stroke-linecap','round');
+  mk.appendChild(mkp);defs.appendChild(mk);svgl.appendChild(defs);
+
+  conns.forEach(c=>{
+    const fn=nodes.find(n=>n.id===c.from);
+    const tn=nodes.find(n=>n.id===c.to);
+    if(!fn||!tn)return;
+    const fel=document.getElementById(fn.id);
+    const tel=document.getElementById(tn.id);
+    if(!fel||!tel)return;
+
+    const x1=fn.x+fel.offsetWidth/2;
+    const y1=fn.y+fel.offsetHeight;
+    const x2=tn.x+tel.offsetWidth/2;
+    const y2=tn.y;
+    const gap=y2-y1;
+
+    // Auto-straighten: if nodes are nearly horizontally aligned, snap to straight vertical.
+    // Auto-straighten: snap to a clean vertical if the two centres are within
+    // SNAP_PX horizontally. This catches cases like Angeline→Michael where the
+    // nodes are almost but not quite directly above each other.
+    const hDiff = Math.abs(x1 - x2);
+    const SNAP_PX = 80; // snap if centres within 80px horizontally
+    const isNearlyVertical = hDiff <= SNAP_PX;
+    const isTopLevel = (fn.id==='n0' || fn.id==='n1');
+    let d;
+    if(isNearlyVertical){
+      // Straight vertical — split the difference so line is centred between both nodes
+      const mx = Math.round((x1 + x2) / 2);
+      d=`M${mx},${y1} L${mx},${y2}`;
+    } else if(isTopLevel){
+      const mid = Math.round(y1 + gap / 2);
+      d=`M${x1},${y1} L${x1},${mid} L${x2},${mid} L${x2},${y2}`;
+    } else {
+      const cy = gap * 0.5;
+      d=`M${x1},${y1} C${x1},${y1+cy} ${x2},${y2-cy} ${x2},${y2}`;
+    }
+    const path=se('path');
+    path.setAttribute('d',d);
+    path.setAttribute('fill','none');
+    path.setAttribute('stroke','#C0BAE8');
+    path.setAttribute('stroke-width','1.3');
+    path.setAttribute('marker-end','url(#arr)');
+    if(editMode){
+      path.style.pointerEvents='stroke';path.style.cursor='pointer';
+      path.addEventListener('click',e=>{e.stopPropagation();delConn(c.id);});
+    }
+    svgl.appendChild(path);
+
+    if(editMode){
+      const mx=(x1+x2)/2, my=mid;
+      const fo=document.createElementNS('http://www.w3.org/2000/svg','foreignObject');
+      fo.setAttribute('x',mx-7);fo.setAttribute('y',my-7);
+      fo.setAttribute('width','14');fo.setAttribute('height','14');
+      fo.style.overflow='visible';fo.style.pointerEvents='all';
+      const btn=document.createElement('div');
+      btn.className='cdel';btn.innerHTML='&times;';
+      btn.addEventListener('click',e=>{e.stopPropagation();delConn(c.id);});
+      fo.appendChild(btn);svgl.appendChild(fo);
+    }
+  });
+}
+
+function updateSt(){
+  document.getElementById('sn').textContent=nodes.length+' node'+(nodes.length!==1?'s':'');
+  document.getElementById('sc').textContent=conns.length+' conn'+(conns.length!==1?'s':'');
+}
+
+/* ══ DRAG ══ */
+function makeDrag(el,n){
+  let ox,oy,sx,sy,mv=false;
+  el.addEventListener('mousedown',e=>{
+    if(!editMode||e.target.classList.contains('node-del'))return;
+    // Record start position in node-data coords (already correct)
+    ox=n.x;oy=n.y;sx=e.clientX;sy=e.clientY;mv=false;
+    const mm=ev=>{
+      const dx=ev.clientX-sx;
+      const dy=ev.clientY-sy;
+      if(Math.abs(dx)+Math.abs(dy)>3)mv=true;
+      n.x=Math.max(0,ox+dx);
+      n.y=Math.max(0,oy+dy);
+      el.style.left=n.x+'px';
+      el.style.top=n.y+'px';
+      renderSVG();
+    };
+    const mu=()=>{
+      window.removeEventListener('mousemove',mm);
+      window.removeEventListener('mouseup',mu);
+      if(mv){snapshot();render();}
+    };
+    window.addEventListener('mousemove',mm);
+    window.addEventListener('mouseup',mu);
+    e.preventDefault();
+  });
+}
+
+function renderSVG(){
+  svgl.innerHTML='';
+
+  // Size SVG to cover all nodes
+  let maxX=2400,maxY=800;
+  nodes.forEach(n=>{
+    const el=document.getElementById(n.id);
+    if(el){
+      maxX=Math.max(maxX,n.x+el.offsetWidth+60);
+      maxY=Math.max(maxY,n.y+el.offsetHeight+60);
+    }
+  });
+  svgl.style.width=maxX+'px';
+  svgl.style.height=maxY+'px';
+  svgl.setAttribute('width',maxX);
+  svgl.setAttribute('height',maxY);
+  svgl.setAttribute('viewBox','0 0 '+maxX+' '+maxY);
+
+  // Arrow marker
+  const defs=se('defs');
+  const mk=se('marker');
+  mk.setAttribute('id','arr');mk.setAttribute('viewBox','0 0 10 10');
+  mk.setAttribute('refX','8');mk.setAttribute('refY','5');
+  mk.setAttribute('markerWidth','6');mk.setAttribute('markerHeight','6');
+  mk.setAttribute('orient','auto-start-reverse');
+  const mkp=se('path');
+  mkp.setAttribute('d','M2 2L8 5L2 8');mkp.setAttribute('fill','none');
+  mkp.setAttribute('stroke','#9490C8');mkp.setAttribute('stroke-width','1.3');
+  mkp.setAttribute('stroke-linecap','round');
+  mk.appendChild(mkp);defs.appendChild(mk);svgl.appendChild(defs);
+
+  conns.forEach(c=>{
+    const fn=nodes.find(n=>n.id===c.from);
+    const tn=nodes.find(n=>n.id===c.to);
+    if(!fn||!tn)return;
+    const fel=document.getElementById(fn.id);
+    const tel=document.getElementById(tn.id);
+    if(!fel||!tel)return;
+
+    // Use node data coords + element dimensions — no viewport/scroll math needed
+    const x1=fn.x+fel.offsetWidth/2;
+    const y1=fn.y+fel.offsetHeight;
+    const x2=tn.x+tel.offsetWidth/2;
+    const y2=tn.y;
+    const gap=y2-y1;
+
+    const isTopLevel=(fn.id==='n0'||fn.id==='n1');
+    let d;
+    if(isTopLevel){
+      const mid=Math.round(y1+gap/2);
+      d=`M${x1},${y1} L${x1},${mid} L${x2},${mid} L${x2},${y2}`;
+    }else{
+      const cy=gap*0.5;
+      d=`M${x1},${y1} C${x1},${y1+cy} ${x2},${y2-cy} ${x2},${y2}`;
+    }
+
+    const path=se('path');
+    path.setAttribute('d',d);
+    path.setAttribute('fill','none');
+    path.setAttribute('stroke','#C0BAE8');
+    path.setAttribute('stroke-width','1.3');
+    path.setAttribute('marker-end','url(#arr)');
+    if(editMode){
+      path.style.pointerEvents='stroke';
+      path.style.cursor='pointer';
+      path.addEventListener('click',e=>{e.stopPropagation();delConn(c.id);});
+    }
+    svgl.appendChild(path);
+
+    if(editMode){
+      const mx=(x1+x2)/2,my=isTopLevel?Math.round(y1+gap/2):(y1+y2)/2;
+      const fo=document.createElementNS('http://www.w3.org/2000/svg','foreignObject');
+      fo.setAttribute('x',mx-7);fo.setAttribute('y',my-7);
+      fo.setAttribute('width','14');fo.setAttribute('height','14');
+      fo.style.overflow='visible';fo.style.pointerEvents='all';
+      const btn=document.createElement('div');
+      btn.className='cdel';btn.innerHTML='&times;';
+      btn.addEventListener('click',e=>{e.stopPropagation();delConn(c.id);});
+      fo.appendChild(btn);svgl.appendChild(fo);
+    }
+  });
+}
+
+
+/* ══ CLICK / CONNECT ══ */
+function handleClick(id){
+  if(!editMode)return;
+  if(connMode){
+    if(!connFrom){connFrom=id;document.getElementById('smode').textContent='Connect: click target';}
+    else if(connFrom!==id){
+      if(!conns.find(c=>c.from===connFrom&&c.to===id))
+        conns.push({id:'c'+Date.now(),from:connFrom,to:id});
+        snapshot();
+      connFrom=null;toggleConn(false);
+    }
+  }else{selId=(selId===id?null:id);showPanel(selId);}
+  render();
+}
+
+canvas.addEventListener('click',e=>{
+  if(e.target===canvas||e.target===svgl){selId=null;if(editMode)showPanel(null);render();}
+});
+
+function toggleConn(force){
+  connMode=force!==undefined?force:!connMode;connFrom=null;
+  const btn=document.getElementById('btn-conn');
+  btn.classList.toggle('on',connMode);
+  btn.textContent=connMode?'⊗ Cancel':'○ Connect';
+  document.getElementById('smode').textContent=connMode?'Connect: click first node':'Edit mode';
+  canvas.querySelectorAll('.node').forEach(el=>el.classList.toggle('conn-hover',connMode));
+}
+
+/* ══ ADD / DELETE ══ */
+function addNode(type){
+  if(!editMode)return;
+  const sa=document.getElementById('scroll-area');
+  const id='n'+nid++;
+  const n={id,theme:activeTheme,
+    x:sa.scrollLeft+60+Math.random()*100,
+    y:sa.scrollTop+40+Math.random()*60,
+    name:type==='person'?'New person':'New task',
+    sub:type==='person'?'Role / location':'',
+    section:type==='task'?'Tasks':'',items:''};
+  nodes.push(n);selId=id;snapshot();render();showPanel(id);
+  setTimeout(()=>openM(id),80);
+}
+function delNode(id){
+  if(!editMode)return;
+  nodes=nodes.filter(n=>n.id!==id);
+  conns=conns.filter(c=>c.from!==id&&c.to!==id);
+  document.getElementById(id)?.remove();
+  if(selId===id){selId=null;showPanel(null);}
+  snapshot();
+  render();
+}
+function delConn(id){if(!editMode)return;conns=conns.filter(c=>c.id!==id);snapshot();render();}
+function delSel(){if(selId)delNode(selId);}
+
+/* ══ PANEL ══ */
+function showPanel(id){
+  const pb=document.getElementById('pb');
+  if(!id){pb.innerHTML='<div class="pe">Select a node to edit.<br><br>Double-click for full editor.</div>';return;}
+  const n=nodes.find(x=>x.id===id);if(!n)return;
+  const themes=[
+    {t:'t-purple',bg:'#EEEDFE',bd:'#7B72D9'},{t:'t-teal',bg:'#E0F7EF',bd:'#2EAE82'},
+    {t:'t-coral',bg:'#FDF0EB',bd:'#E07050'},{t:'t-gray',bg:'#F4F2EE',bd:'#B0ADA6'},
+    {t:'t-violet',bg:'#EEEEFF',bd:'#8B84E0'},
+  ];
+  pb.innerHTML=`
+    <div class="pg"><span class="pl">Name</span><input class="pi" value="${esc(n.name)}" oninput="lu('${id}','name',this.value)"></div>
+    <div class="pg"><span class="pl">Subtitle</span><input class="pi" value="${esc(n.sub||'')}" oninput="lu('${id}','sub',this.value)"></div>
+    <div class="pg"><span class="pl">Section label</span><input class="pi" value="${esc(n.section||'')}" placeholder="e.g. Main tasks…" oninput="lu('${id}','section',this.value)"></div>
+    <div class="pg"><span class="pl">Items (one per line)</span>
+      <textarea class="pta" oninput="lu('${id}','items',this.value)">${esc(n.items||'')}</textarea>
+      <span class="ph">Each line = one bullet.</span></div>
+    <div class="pg"><span class="pl">Color</span>
+      <div class="pc">${themes.map(th=>`<div class="ps${n.theme===th.t?' active':''}" style="background:${th.bg};border-color:${th.bd}" onclick="chTheme('${id}','${th.t}',this)"></div>`).join('')}</div></div>
+    <div class="pg" style="margin-top:2px"><button class="pbtn pbtn-conn" onclick="connFrom2('${id}')">+ Connect to node</button></div>
+    <div class="pg"><button class="pbtn pbtn-del" onclick="delNode('${id}')">Delete node</button></div>`;
+}
+let _luTimer=null;
+function lu(id,f,v){
+  const n=nodes.find(x=>x.id===id);if(!n)return;
+  n[f]=v;render();
+  clearTimeout(_luTimer);
+  _luTimer=setTimeout(snapshot,600); // snapshot 600ms after typing stops
+}
+function chTheme(id,t,el){
+  const n=nodes.find(x=>x.id===id);if(!n)return;n.theme=t;
+  document.querySelectorAll('.ps').forEach(s=>s.classList.remove('active'));
+  el.classList.add('active');render();
+}
+function connFrom2(id){
+  connMode=true;connFrom=id;
+  document.getElementById('btn-conn').classList.add('on');
+  document.getElementById('btn-conn').textContent='⊗ Cancel';
+  document.getElementById('smode').textContent='Connect: click target node';
+  canvas.querySelectorAll('.node').forEach(el=>el.classList.add('conn-hover'));
+}
+
+/* ══ MODAL ══ */
+function openM(id){
+  const n=nodes.find(x=>x.id===id);if(!n)return;
+  modalId=id;
+  document.getElementById('mtitle').textContent='Edit: '+n.name;
+  document.getElementById('mn').value=n.name;
+  document.getElementById('ms').value=n.sub||'';
+  document.getElementById('msc').value=n.section||'';
+  document.getElementById('mi').value=n.items||'';
+  document.getElementById('mw').classList.add('open');
+}
+function closeM(){document.getElementById('mw').classList.remove('open');modalId=null;}
+function saveM(){
+  const n=nodes.find(x=>x.id===modalId);if(!n)return;
+  n.name=document.getElementById('mn').value;
+  n.sub=document.getElementById('ms').value;
+  n.section=document.getElementById('msc').value;
+  n.items=document.getElementById('mi').value;
+  snapshot();closeM();render();showPanel(selId);
+}
+document.getElementById('mw').addEventListener('click',e=>{if(e.target===document.getElementById('mw'))closeM();});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape')closeM();
+  if(e.key==='Delete'&&editMode&&!['INPUT','TEXTAREA'].includes(document.activeElement.tagName))delSel();
+  if((e.ctrlKey||e.metaKey)&&e.key==='z'&&!e.shiftKey){e.preventDefault();undo();}
+  if((e.ctrlKey||e.metaKey)&&(e.key==='y'||(e.key==='z'&&e.shiftKey))){e.preventDefault();redo();}
+  // Arrow key nudge for selected node
+  if(selId&&editMode&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)&&!['INPUT','TEXTAREA'].includes(document.activeElement.tagName)){
+    e.preventDefault();
+    const n=nodes.find(x=>x.id===selId);
+    if(n){
+      const step=e.shiftKey?20:4;
+      if(e.key==='ArrowLeft')  n.x=Math.max(0,n.x-step);
+      if(e.key==='ArrowRight') n.x=n.x+step;
+      if(e.key==='ArrowUp')    n.y=Math.max(0,n.y-step);
+      if(e.key==='ArrowDown')  n.y=n.y+step;
+      const el=document.getElementById(selId);
+      if(el){el.style.left=n.x+'px';el.style.top=n.y+'px';}
+      renderSVG();
+      clearTimeout(window._arrowSnap);
+      window._arrowSnap=setTimeout(snapshot,400);
+    }
+  }
+});
+
+/* ══ TOOLBAR SWATCH ══ */
+function setSwatch(el){
+  activeSw?.classList.remove('active');el.classList.add('active');activeSw=el;activeTheme=el.dataset.t;
+  if(selId&&editMode){const n=nodes.find(x=>x.id===selId);if(n){n.theme=activeTheme;render();showPanel(selId);}}
+}
+
+/* ══ TITLE SYNC ══ */
+document.getElementById('chart-title').addEventListener('input',function(){
+  document.getElementById('display-title').textContent=this.value||'MDU PMO Team';
+});
+
+/* ══ CANVA TIP ══ */
+function showCanvaTip(){
+  const t=document.getElementById('canva-tip');
+  t.style.display=t.style.display==='none'?'block':'none';
+}
+
+/* ══ EXPORT ══ */
+function doExport(){
+  const title=document.getElementById('chart-title').value||'MDU PMO Team';
+  let h=`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><title>${esc(title)}</title>`;
+  h+=`<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display&display=swap" rel="stylesheet"/>`;
+  h+=`<style>
+:root{--purple-bg:#EEEDFE;--purple-bd:#7B72D9;--purple-tx:#3B3391;--teal-bg:#E0F7EF;--teal-bd:#2EAE82;--teal-tx:#0A6648;--coral-bg:#FDF0EB;--coral-bd:#E07050;--coral-tx:#7A2E14;--gray-bg:#F4F2EE;--gray-bd:#B0ADA6;--gray-tx:#4A4845;--violet-bg:#EEEEFF;--violet-bd:#8B84E0;--violet-tx:#3A3390}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',sans-serif;background:#F5F4F0;padding:48px 60px 80px;min-height:100vh}
+h1{font-family:'DM Serif Display',serif;font-size:30px;font-weight:400;text-align:center;color:#1A1917;margin-bottom:5px}
+p.sub{text-align:center;font-size:12px;color:#706E68;font-weight:300;margin-bottom:28px}
+.legend{display:flex;justify-content:center;gap:18px;margin-bottom:36px;flex-wrap:wrap}
+.leg{display:flex;align-items:center;gap:5px;font-size:12px;color:#706E68}
+.ld{width:9px;height:9px;border-radius:2px;border:1px solid}
+#canvas{position:relative;min-height:700px;width:100%;overflow-x:auto}
+svg{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+.node{position:absolute;border-radius:10px;border:1.5px solid;padding:9px 13px;min-width:110px;max-width:170px;text-align:center}
+.node-name{font-size:12px;font-weight:600;line-height:1.35}.node-sub{font-size:11px;font-weight:300;opacity:.72;margin-top:2px}
+.node-section{font-size:9px;font-weight:600;letter-spacing:.7px;text-transform:uppercase;opacity:.5;margin-top:7px}
+.node-items{font-size:11px;line-height:1.65;margin-top:2px}
+.t-purple{background:var(--purple-bg);border-color:var(--purple-bd);color:var(--purple-tx)}
+.t-teal{background:var(--teal-bg);border-color:var(--teal-bd);color:var(--teal-tx)}
+.t-coral{background:var(--coral-bg);border-color:var(--coral-bd);color:var(--coral-tx)}
+.t-gray{background:var(--gray-bg);border-color:var(--gray-bd);color:var(--gray-tx)}
+.t-violet{background:var(--violet-bg);border-color:var(--violet-bd);color:var(--violet-tx)}
+.export-btns{display:flex;justify-content:center;gap:12px;margin-top:40px}
+.export-btns button{padding:8px 20px;border-radius:20px;border:1px solid;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer}
+</style></head><body>`;
+  h+=`<h1>${esc(title)}</h1><p class="sub">Team structure &amp; task assignments — April 2026</p>`;
+  h+=`<div class="legend">
+    <span class="leg"><span class="ld" style="background:var(--purple-bg);border-color:var(--purple-bd)"></span>Leadership</span>
+    <span class="leg"><span class="ld" style="background:var(--teal-bg);border-color:var(--teal-bd)"></span>SG Onshore</span>
+    <span class="leg"><span class="ld" style="background:var(--coral-bg);border-color:var(--coral-bd)"></span>India Offshore</span>
+    <span class="leg"><span class="ld" style="background:var(--teal-bg);border-color:var(--teal-bd)"></span>Main tasks</span>
+    <span class="leg"><span class="ld" style="background:var(--violet-bg);border-color:var(--violet-bd)"></span>Coding tasks</span>
+    <span class="leg"><span class="ld" style="background:var(--gray-bg);border-color:var(--gray-bd)"></span>Non-coding</span>
+  </div>`;
+  h+=`<div id="canvas"><svg id="svgl"></svg>`;
+  nodes.forEach(n=>{
+    let inner=`<div class="node-name">${esc(n.name)}</div>`;
+    if(n.sub) inner+=`<div class="node-sub">${esc(n.sub)}</div>`;
+    if(n.section) inner+=`<div class="node-section">${esc(n.section)}</div>`;
+    if(n.items){const ls=n.items.split('\n').filter(s=>s.trim());if(ls.length)inner+=`<div class="node-items">${ls.map(l=>'• '+esc(l.trim())).join('<br>')}</div>`;}
+    h+=`<div class="node ${n.theme}" id="${n.id}" style="left:${n.x}px;top:${n.y}px">${inner}</div>`;
+  });
+  h+=`</div>
+  <div class="export-btns">
+    <button style="background:var(--purple-bg);color:var(--purple-tx);border-color:var(--purple-bd)" onclick="window.print()">Print / Save as PDF</button>
+    <button style="background:#F5F4F0;color:#706E68;border-color:#C8C5BC" onclick="document.getElementById('ct').style.display=document.getElementById('ct').style.display==='none'?'block':'none'">How to import to Canva</button>
+  </div>
+  <div id="ct" style="display:none;max-width:480px;margin:14px auto 0;background:var(--purple-bg);border:1px solid var(--purple-bd);border-radius:10px;padding:14px 18px;font-size:12px;color:var(--purple-tx);line-height:1.7">
+    <strong>To import to Canva:</strong><br>1. Print / Save as PDF.<br>2. In Canva → Uploads → Upload files → upload PDF.<br>3. Drag onto your canvas.
+  </div>
+  <script>
+window.addEventListener('load',function(){
+  var svgl=document.getElementById('svgl');
+  var defs=document.createElementNS('http://www.w3.org/2000/svg','defs');
+  var mk=document.createElementNS('http://www.w3.org/2000/svg','marker');
+  mk.setAttribute('id','a');mk.setAttribute('viewBox','0 0 10 10');mk.setAttribute('refX','8');mk.setAttribute('refY','5');mk.setAttribute('markerWidth','6');mk.setAttribute('markerHeight','6');mk.setAttribute('orient','auto-start-reverse');
+  var mkp=document.createElementNS('http://www.w3.org/2000/svg','path');mkp.setAttribute('d','M2 2L8 5L2 8');mkp.setAttribute('fill','none');mkp.setAttribute('stroke','#9490C8');mkp.setAttribute('stroke-width','1.3');mkp.setAttribute('stroke-linecap','round');
+  mk.appendChild(mkp);defs.appendChild(mk);svgl.appendChild(defs);
+  var conns=${JSON.stringify(conns)};
+  conns.forEach(function(c){
+    var fe=document.getElementById(c.from),te=document.getElementById(c.to);
+    if(!fe||!te)return;
+    var x1=fe.offsetLeft+fe.offsetWidth/2,y1=fe.offsetTop+fe.offsetHeight;
+    var x2=te.offsetLeft+te.offsetWidth/2,y2=te.offsetTop;
+    var gap=y2-y1;
+    var isTop=(c.from==='n0'||c.from==='n1');
+    var d;
+    if(isTop){var mid=Math.round(y1+gap/2);d='M'+x1+','+y1+' L'+x1+','+mid+' L'+x2+','+mid+' L'+x2+','+y2;}
+    else{var cy1=y1+gap*0.5,cy2=y2-gap*0.5;d='M'+x1+','+y1+' C'+x1+','+cy1+' '+x2+','+cy2+' '+x2+','+y2;}
+    var p=document.createElementNS('http://www.w3.org/2000/svg','path');
+    p.setAttribute('d',d);
+    p.setAttribute('fill','none');p.setAttribute('stroke','#C0BAE8');p.setAttribute('stroke-width','1.3');p.setAttribute('marker-end','url(#a)');
+    svgl.appendChild(p);
+  });
+  var mb=0;document.querySelectorAll('.node').forEach(function(el){var b=el.offsetTop+el.offsetHeight;if(b>mb)mb=b;});
+  document.getElementById('canvas').style.minHeight=(mb+60)+'px';
+});
+<\/script></body></html>`;
+  const blob=new Blob([h],{type:'text/html'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='mdu_pmo_chart.html';a.click();
+}
+
+/* ══ UTILS ══ */
+function se(tag){return document.createElementNS('http://www.w3.org/2000/svg',tag);}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+
+/* ══ PASSWORD PROTECTION ══ */
+// SHA-256 hash of the password. Change this to protect with a different password.
+// Current password: MDUpmo2026
+// To generate a new hash: https://emn178.github.io/online-tools/sha256.html
+const PW_HASH = '3638f237f7a5d2a5e16bb8982e4b9b6d607a71df3e23296043570c79db3f88a4';
+
+async function hashStr(str){
+  const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+async function checkPW(){
+  const val=document.getElementById('pw-input').value;
+  const hash=await hashStr(val);
+  const stored=sessionStorage.getItem('mdu_pmo_auth');
+  if(hash===PW_HASH||stored===PW_HASH){
+    sessionStorage.setItem('mdu_pmo_auth',PW_HASH);
+    document.getElementById('pw-screen').style.display='none';
+  } else {
+    const inp=document.getElementById('pw-input');
+    const err=document.getElementById('pw-error');
+    inp.classList.add('wrong');
+    err.textContent='Incorrect password. Try again.';
+    inp.value='';
+    setTimeout(()=>inp.classList.remove('wrong'),400);
+  }
+}
+
+async function initAuth(){
+  const stored=sessionStorage.getItem('mdu_pmo_auth');
+  if(stored===PW_HASH){
+    document.getElementById('pw-screen').style.display='none';
+  } else {
+    // Keep screen visible, focus input
+    setTimeout(()=>document.getElementById('pw-input').focus(),100);
+  }
+}
+initAuth();
+
+/* ══ BOOT ══ */
+render();
+setTimeout(function(){
+  autoAlign();
+  snapshot(); // initial state
+  const sa=document.getElementById('scroll-area');
+  setTimeout(function(){
+    // Scroll so chart is centered in viewport
+    const page=document.getElementById('page');
+    const centerX=(page.offsetWidth - sa.offsetWidth)/2;
+    sa.scrollLeft=Math.max(0,centerX);
+    updateUndoUI();
+  },80);
+},100);
+</script>
+</body>
+</html>
