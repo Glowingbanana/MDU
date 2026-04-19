@@ -741,32 +741,32 @@ function renderSVG(){
 
     // Auto-straighten: if nodes are nearly horizontally aligned, snap to straight vertical.
     // Smart connector:
-    // 1. Nearly vertical → straight line
-    // 2. Parent has multiple children at same Y → draw as org-chart bus (handled below)
-    // 3. Otherwise → smooth bezier
+    // 1. Nearly vertical (within 24px) → snap to straight vertical
+    // 2. All siblings at same Y → bus-bar org chart style (vertical drop only, bar drawn separately)
+    // 3. Everything else → smooth bezier (works even when dragged anywhere)
     const hDiff = Math.abs(x1 - x2);
     const SNAP_PX = 24;
     const isNearlyVertical = hDiff <= SNAP_PX;
 
-    // Check if this parent has multiple children all at same Y (org-chart bus)
+    // Check siblings only for the bus-bar optimisation
     const siblings = conns
       .filter(cc => cc.from === c.from)
       .map(cc => nodes.find(n => n.id === cc.to))
       .filter(Boolean);
-    const sibEls = siblings.map(n => document.getElementById(n.id)).filter(Boolean);
     const sibYs = siblings.map(n => n.y);
     const allSameY = siblings.length > 1 && sibYs.every(y => Math.abs(y - sibYs[0]) < 10);
 
     let d;
     if(isNearlyVertical){
+      // Straight vertical — perfectly aligned
       const mx = Math.round((x1 + x2) / 2);
       d=`M${mx},${y1} L${mx},${y2}`;
-    } else if(allSameY && siblings.length > 1){
-      // Org-chart bus: only draw the vertical drop from bus bar to this child
-      // The horizontal bar and parent stem are drawn separately after all conns
+    } else if(allSameY){
+      // Bus bar — only the vertical drop; horizontal bar drawn in post-pass
       const busY = Math.round(y1 + gap * 0.5);
       d=`M${x2},${busY} L${x2},${y2}`;
     } else {
+      // Smooth bezier — works for any position, including after dragging
       const cy = gap * 0.5;
       d=`M${x1},${y1} C${x1},${y1+cy} ${x2},${y2-cy} ${x2},${y2}`;
     }
@@ -795,7 +795,8 @@ function renderSVG(){
     }
   });
 
-  // Draw org-chart bus bars: one horizontal line across all siblings at same Y
+  // Draw org-chart bus bars — only when ALL siblings are at the same Y level
+  // If any sibling has been dragged to a different Y, skip the bar entirely
   const drawnBars = new Set();
   conns.forEach(c => {
     if(drawnBars.has(c.from)) return;
@@ -808,7 +809,7 @@ function renderSVG(){
     if(sibEls.length < 2) return;
     const sibYs = siblings.map(n => n.y);
     const allSameY = sibYs.every(y => Math.abs(y - sibYs[0]) < 10);
-    if(!allSameY) return;
+    if(!allSameY) return; // Someone dragged a node — let bezier curves handle it
 
     const parentNode = nodes.find(n => n.id === c.from);
     const parentEl = document.getElementById(c.from);
